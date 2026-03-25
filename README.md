@@ -41,9 +41,9 @@ That lets OpenClaw treat it as the Telegram plugin that should win over the
 bundled one when the operator explicitly chooses it.
 
 See:
-- [docs/architecture.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/architecture.md)
-- [docs/install.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/install.md)
-- [docs/configuration.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/configuration.md)
+- [Architecture](docs/architecture.md)
+- [Install](docs/install.md)
+- [Configuration](docs/configuration.md)
 
 ## Relationship to pc-control
 
