@@ -4,6 +4,16 @@
   "private": false,
   "description": "Enhanced Telegram channel override for OpenClaw with better delivery, approvals, and extensible integration hooks",
   "type": "module",
+  "keywords": [
+    "openclaw",
+    "telegram",
+    "bot",
+    "plugin",
+    "extension",
+    "override",
+    "automation",
+    "channel"
+  ],
   "dependencies": {
     "@grammyjs/runner": "^2.0.3",
     "@grammyjs/transformer-throttler": "^1.2.1",

@@ -2,6 +2,9 @@
 
 Enhanced Telegram channel override for OpenClaw.
 
+It improves Telegram-specific delivery behavior, approval UX, and integration
+hooks without carrying a broad OpenClaw core fork.
+
 This project is a Telegram plugin override that keeps the runtime
 plugin id as `telegram`, so it can deliberately override the bundled Telegram
 channel plugin when explicitly installed or loaded.
