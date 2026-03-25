@@ -1,13 +1,13 @@
 # openclaw-telegram-enhanced
 
-Enhanced Telegram channel override for OpenClaw.
+Enhanced Telegram channel replacement for OpenClaw.
 
 It improves Telegram-specific delivery behavior, approval UX, and integration
 hooks without carrying a broad OpenClaw core fork.
 
-This project is a Telegram plugin override that keeps the runtime
-plugin id as `telegram`, so it can deliberately override the bundled Telegram
-channel plugin when explicitly installed or loaded.
+This project provides a Telegram plugin implementation that keeps the runtime
+plugin id as `telegram`, so it can replace the bundled Telegram channel plugin
+through the supported bundled-plugin seam.
 
 It is meant for Telegram-specific UX and delivery improvements that should not
 live inside OpenClaw core, for example:
@@ -23,22 +23,32 @@ What this is not:
 
 ## Current feature set
 
-- override the bundled Telegram channel plugin through explicit plugin loading
+- replace the bundled Telegram channel plugin through the bundled plugin tree
 - suppress duplicate approval prose when Telegram button approvals already exist
 - support document-style delivery for staged local media
 - provide a host screenshot shortcut integration path used by `pc-control`
 
 ## Install model
 
-This plugin is designed to be installed as an explicit override, not as an
-accidental auto-discovered shadow.
+The supported production model is:
 
-The important detail is:
-- npm/package name can be `openclaw-telegram-enhanced`
-- runtime plugin id stays `telegram`
+- keep runtime plugin id as `telegram`
+- ship this plugin inside the bundled plugins tree used by the OpenClaw image
+- replace the bundled `telegram` directory in the image or point
+  `OPENCLAW_BUNDLED_PLUGINS_DIR` at a full replacement bundled tree
+- do not rely on `plugins.load.paths` to shadow the bundled Telegram plugin in production
 
-That lets OpenClaw treat it as the Telegram plugin that should win over the
-bundled one when the operator explicitly chooses it.
+The package name also needs to stay compatible with the manifest id to avoid
+loader warnings. For that reason the package name is `telegram-plugin`, while
+the repository/project name can stay `openclaw-telegram-enhanced`.
+
+Development note:
+
+- a config-path or linked-path load can still be useful for short-lived local
+  experiments
+- it is not the supported long-lived deployment path for this repository
+- the production target remains one bundled `telegram` plugin candidate in the
+  image, not a duplicate-id override at runtime
 
 See:
 - [Architecture](docs/architecture.md)

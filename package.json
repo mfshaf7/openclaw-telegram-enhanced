@@ -1,8 +1,8 @@
 {
-  "name": "@mfshaf7/openclaw-telegram-enhanced",
+  "name": "@mfshaf7/telegram-plugin",
   "version": "2026.3.22",
   "private": false,
-  "description": "Enhanced Telegram channel override for OpenClaw with better delivery, approvals, and extensible integration hooks",
+  "description": "Enhanced bundled Telegram replacement for OpenClaw with better delivery, approvals, and extensible integration hooks",
   "type": "module",
   "keywords": [
     "openclaw",

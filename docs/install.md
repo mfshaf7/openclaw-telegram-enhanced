@@ -1,34 +1,38 @@
 # Install
 
-This plugin is intended to override the bundled Telegram plugin explicitly.
+This plugin is intended to replace the bundled Telegram plugin through the
+supported bundled-plugin seam.
 
-## Recommended install shape
+## Recommended production install shape
 
-1. Install the plugin into OpenClaw extensions state.
-2. Add an explicit `plugins.load.paths` entry for this plugin.
-3. Keep `plugins.allow` pinned.
-4. Let the runtime load this plugin as `telegram`.
+1. Build a custom OpenClaw image that replaces `/app/extensions/telegram`
+   with this plugin.
+2. Keep the runtime plugin id as `telegram`.
+3. Keep `plugins.allow` pinned if you use an allowlist.
+4. Enable the Telegram channel normally through `channels.telegram.enabled`.
 
-## Why explicit install matters
+## Why this is the supported clean path
 
-OpenClaw lets bundled plugins beat auto-discovered duplicates by default.
+OpenClaw treats built-in channel ids as bundled plugins first.
 
-So the clean operator model is:
-- explicit install or explicit load path
-- explicit allowlist
-- intentional override
+If you load another `telegram` plugin through `plugins.load.paths`, the loader
+will intentionally treat that as a duplicate-id override and emit warnings.
+
+If you replace the bundled `telegram` plugin inside the bundled plugin tree
+instead, there is only one `telegram` plugin candidate and the duplicate-id
+warning goes away.
 
 ## Example config shape
 
 ```json
 {
-  "plugins": {
-    "allow": ["telegram", "pc-control"],
-    "load": {
-      "paths": [
-        "/home/node/.openclaw/extensions/telegram"
-      ]
+  "channels": {
+    "telegram": {
+      "enabled": true
     }
+  },
+  "plugins": {
+    "allow": ["telegram", "pc-control"]
   }
 }
 ```
@@ -36,16 +40,21 @@ So the clean operator model is:
 ## Notes
 
 - The plugin id remains `telegram`.
-- The package name can still be `openclaw-telegram-enhanced`.
-- Some OpenClaw diagnostics may warn about package-name-vs-plugin-id mismatch.
-  That is expected for an override plugin with a distinct publishable package name.
+- The repository/project name can still be `openclaw-telegram-enhanced`.
+- The package name should stay compatible with the plugin id to avoid loader
+  mismatch warnings. In this repository the package name is
+  `@mfshaf7/telegram-plugin`.
+- `plugins.load.paths` is only for short-lived development and local debugging.
+  Do not treat it as the supported steady-state deployment path for a built-in
+  channel replacement.
+- The clean production result is exactly one runtime `telegram` plugin source:
+  the bundled replacement in the image.
 
 ## Dependency note
 
-Because this is a channel plugin override, it needs Telegram runtime
+Because this is a bundled channel replacement, it needs Telegram runtime
 dependencies available at load time.
 
-In local/state-based deployments, that usually means one of:
-- install the package normally so dependencies are staged with it
-- link it in development with a real `node_modules`
-- or share dependency resolution from the OpenClaw runtime image
+In the recommended image-based deployment, those dependencies come from the
+OpenClaw runtime image and the replacement plugin directory you copy into the
+bundled plugins tree.

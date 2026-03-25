@@ -1,20 +1,24 @@
 # Architecture
 
-`openclaw-telegram-enhanced` is a Telegram channel override plugin for OpenClaw.
+`openclaw-telegram-enhanced` is a Telegram channel replacement plugin for OpenClaw.
 
 ## Design goal
 
 Keep Telegram-specific behavior outside OpenClaw core while still letting the
-runtime replace the bundled Telegram plugin intentionally.
+runtime replace the bundled Telegram plugin intentionally through the bundled
+plugin tree.
 
 ## Key idea
 
-- package name: distinct from the bundled plugin
+- package name: compatible with the `telegram` manifest id
 - runtime plugin id: still `telegram`
 
 That split matters because OpenClaw resolves plugin precedence by plugin id.
-To override the bundled Telegram plugin cleanly, this plugin must still register
-as `telegram`.
+To replace the bundled Telegram plugin cleanly, this plugin must still register
+as `telegram` and must not be loaded as a second config-path duplicate.
+
+In this repository the package name is `@mfshaf7/telegram-plugin`, while the
+runtime plugin id remains `telegram`.
 
 ## Boundaries
 
@@ -44,6 +48,6 @@ Example:
 
 - update surface is smaller
 - behavior is versionable as a plugin
-- the override is explicit in config
+- the replacement lives on the supported bundled-plugin seam
 - repo boundary is clearer
 - OpenClaw base can stay close to upstream

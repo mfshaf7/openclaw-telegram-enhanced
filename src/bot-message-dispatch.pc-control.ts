@@ -9,14 +9,37 @@ import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { deliverReplies } from "./bot/delivery.js";
 
 const DEFAULT_PC_CONTROL_AUTH_TOKEN_ENV = "PC_CONTROL_BRIDGE_TOKEN";
+const DEFAULT_PC_CONTROL_TIMEOUT_MS = 10_000;
+const DEFAULT_PC_CONTROL_OPERATION_TIMEOUTS_MS: Record<string, number> = {
+  "display.screenshot": 20_000,
+};
 
 type PcControlTelegramConfig = {
   bridgeUrl: string;
   authTokenEnv: string;
   authToken: string;
+  timeoutMs: number;
+  operationTimeoutsMs: Record<string, number>;
   sharedPathMap?: { from: string; to: string };
   allowExportOperations: boolean;
 };
+
+function toPositiveNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function toOperationTimeouts(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const output: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "number" && Number.isFinite(entry) && entry > 0) {
+      output[key] = entry;
+    }
+  }
+  return output;
+}
 
 function toPcControlSharedPathMap(value: unknown): { from: string; to: string } | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -49,6 +72,11 @@ function resolvePcControlTelegramConfig(cfg: OpenClawConfig): PcControlTelegramC
     bridgeUrl: bridgeUrl.replace(/\/+$/, ""),
     authTokenEnv,
     authToken,
+    timeoutMs: toPositiveNumber(pluginCfg.timeoutMs, DEFAULT_PC_CONTROL_TIMEOUT_MS),
+    operationTimeoutsMs: {
+      ...DEFAULT_PC_CONTROL_OPERATION_TIMEOUTS_MS,
+      ...toOperationTimeouts(pluginCfg.operationTimeoutsMs),
+    },
     sharedPathMap: toPcControlSharedPathMap(pluginCfg.sharedPathMap),
     allowExportOperations: pluginCfg.allowExportOperations !== false,
   };
@@ -115,20 +143,31 @@ async function callPcControlBridgeDirect(
   if (!config.authToken) {
     throw new Error(`Missing bridge auth token env: ${config.authTokenEnv}`);
   }
-  const response = await fetch(`${config.bridgeUrl}/v1/bridge`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.authToken}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok || json?.ok !== true) {
-    const message = json?.error?.message || `Bridge request failed with status ${response.status}`;
-    throw new Error(message);
+  const controller = new AbortController();
+  const operation =
+    typeof payload.operation === "string" && payload.operation.trim() ? payload.operation : "";
+  const timeoutMs =
+    (operation && config.operationTimeoutsMs?.[operation]) || config.timeoutMs || DEFAULT_PC_CONTROL_TIMEOUT_MS;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${config.bridgeUrl}/v1/bridge`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.authToken}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok || json?.ok !== true) {
+      const message = json?.error?.message || `Bridge request failed with status ${response.status}`;
+      throw new Error(message);
+    }
+    return json;
+  } finally {
+    clearTimeout(timeout);
   }
-  return json;
 }
 
 type ForcedScreenshotParams = {
