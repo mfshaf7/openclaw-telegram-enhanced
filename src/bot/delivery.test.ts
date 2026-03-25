@@ -946,6 +946,38 @@ describe("deliverReplies", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it("upgrades MEDIA-prefixed local markdown file references into Telegram document sends", async () => {
+    const runtime = createRuntime();
+    const sendDocument = vi.fn().mockResolvedValue({
+      message_id: 42,
+      chat: { id: "123" },
+    });
+    const sendMessage = vi.fn();
+    const bot = createBot({ sendDocument, sendMessage });
+
+    mockMediaLoad(
+      "resume.docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "resume",
+    );
+
+    await deliverWith({
+      replies: [
+        {
+          text: "Here is the file again\n\n![Resume](MEDIA:/home/node/.openclaw/media/pc-control-staging/resume.docx)",
+        },
+      ],
+      runtime,
+      bot,
+    });
+
+    expect(sendDocument).toHaveBeenCalledTimes(1);
+    expect(sendDocument.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ fileName: "resume.docx" }),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("pins the first delivered text message when telegram pin is requested", async () => {
     const runtime = createRuntime();
     const sendMessage = vi

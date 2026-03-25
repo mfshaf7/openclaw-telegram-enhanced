@@ -1,18 +1,19 @@
 const MARKDOWN_MEDIA_REF_RE = /!?\[[^\]]*]\(([^)\n]+)\)/g;
 const WINDOWS_ABSOLUTE_PATH_RE = /^[a-zA-Z]:[\\/]/;
+const MEDIA_PREFIX_RE = /^MEDIA:\s*/i;
 
-function isLocalMediaTarget(target: string): boolean {
-  const normalized = target.trim().replace(/^<(.+)>$/, "$1");
+function normalizeLocalMediaTarget(target: string): string | null {
+  const normalized = target.trim().replace(/^<(.+)>$/, "$1").replace(MEDIA_PREFIX_RE, "");
   if (!normalized) {
-    return false;
+    return null;
   }
   if (normalized.startsWith("file://")) {
-    return true;
+    return normalized;
   }
   if (normalized.startsWith("/") || WINDOWS_ABSOLUTE_PATH_RE.test(normalized)) {
-    return true;
+    return normalized;
   }
-  return false;
+  return null;
 }
 
 function normalizeText(text: string): string {
@@ -23,12 +24,15 @@ export function extractLocalMarkdownMediaRefs(params: {
   text?: string | null;
   mediaUrls?: ReadonlyArray<string | null | undefined>;
 }): { text: string; mediaUrls: string[] } {
-  const mediaUrls = params.mediaUrls?.filter((entry): entry is string => Boolean(entry?.trim())) ?? [];
+  const mediaUrls =
+    params.mediaUrls
+      ?.map((entry) => (entry?.trim() ? normalizeLocalMediaTarget(entry) ?? entry.trim() : null))
+      .filter((entry): entry is string => Boolean(entry)) ?? [];
   const extractedMediaUrls: string[] = [];
   const sourceText = params.text ?? "";
   const rewrittenText = sourceText.replace(MARKDOWN_MEDIA_REF_RE, (match, rawTarget: string) => {
-    const target = rawTarget.trim().replace(/^<(.+)>$/, "$1");
-    if (!isLocalMediaTarget(target)) {
+    const target = normalizeLocalMediaTarget(rawTarget);
+    if (!target) {
       return match;
     }
     extractedMediaUrls.push(target);
