@@ -468,6 +468,31 @@ describe("telegramPlugin duplicate token guard", () => {
     expect(result).toMatchObject({ channel: "telegram", messageId: "tg-4" });
   });
 
+  it("upgrades local markdown file references in outbound payload text into media sends", async () => {
+    const sendMessageTelegram = installSendMessageRuntime(
+      vi.fn(async () => ({ messageId: "tg-5", chatId: "12345" })),
+    );
+
+    const result = await telegramPlugin.outbound!.sendPayload!({
+      cfg: createCfg(),
+      to: "12345",
+      text: "",
+      payload: {
+        text: "Here is the file again\n\n[Resume](/home/node/.openclaw/media/pc-control-staging/resume.docx)",
+      },
+      accountId: "ops",
+    });
+
+    expect(sendMessageTelegram).toHaveBeenCalledWith(
+      "12345",
+      "Here is the file again",
+      expect.objectContaining({
+        mediaUrl: "/home/node/.openclaw/media/pc-control-staging/resume.docx",
+      }),
+    );
+    expect(result).toMatchObject({ channel: "telegram", messageId: "tg-5" });
+  });
+
   it("ignores accounts with missing tokens during duplicate-token checks", async () => {
     const cfg = createCfg();
     cfg.channels!.telegram!.accounts!.ops = {} as never;

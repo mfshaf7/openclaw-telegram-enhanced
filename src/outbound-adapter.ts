@@ -16,6 +16,7 @@ import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramInlineButtons } from "./button-types.js";
 import { markdownToTelegramHtmlChunks } from "./format.js";
+import { extractLocalMarkdownMediaRefs } from "./normalize-local-media.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
 import { sendMessageTelegram } from "./send.js";
 
@@ -72,7 +73,11 @@ export async function sendTelegramPayloadMessages(params: {
       text: params.payload.text,
       interactive: params.payload.interactive,
     }) ?? "";
-  const mediaUrls = resolvePayloadMediaUrls(params.payload);
+  const normalizedPayload = extractLocalMarkdownMediaRefs({
+    text,
+    mediaUrls: resolvePayloadMediaUrls(params.payload),
+  });
+  const mediaUrls = normalizedPayload.mediaUrls;
   const buttons = resolveTelegramInlineButtons({
     buttons: telegramData?.buttons,
     interactive: params.payload.interactive,
@@ -84,11 +89,11 @@ export async function sendTelegramPayloadMessages(params: {
 
   // Telegram allows reply_markup on media; attach buttons only to the first send.
   return await sendPayloadMediaSequenceOrFallback({
-    text,
+    text: normalizedPayload.text,
     mediaUrls,
     fallbackResult: { messageId: "unknown", chatId: params.to },
     sendNoMedia: async () =>
-      await params.send(params.to, text, {
+      await params.send(params.to, normalizedPayload.text, {
         ...payloadOpts,
         buttons,
       }),

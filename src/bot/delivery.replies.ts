@@ -27,6 +27,7 @@ import {
   wrapFileReferencesInHtml,
 } from "../format.js";
 import { buildInlineKeyboard } from "../send.js";
+import { extractLocalMarkdownMediaRefs } from "../normalize-local-media.js";
 import { resolveTelegramVoiceSend } from "../voice.js";
 import {
   buildTelegramSendParams,
@@ -621,11 +622,20 @@ export async function deliverReplies(params: {
   });
   for (const originalReply of params.replies) {
     let reply = originalReply;
-    const mediaList = reply?.mediaUrls?.length
-      ? reply.mediaUrls
-      : reply?.mediaUrl
-        ? [reply.mediaUrl]
-        : [];
+    let mediaList = reply?.mediaUrls?.length ? [...reply.mediaUrls] : reply?.mediaUrl ? [reply.mediaUrl] : [];
+    const normalizedReply = extractLocalMarkdownMediaRefs({
+      text: reply?.text,
+      mediaUrls: mediaList,
+    });
+    if (normalizedReply.text !== (reply?.text ?? "") || normalizedReply.mediaUrls.length !== mediaList.length) {
+      reply = {
+        ...reply,
+        text: normalizedReply.text,
+        mediaUrls: normalizedReply.mediaUrls.length > 0 ? normalizedReply.mediaUrls : undefined,
+        mediaUrl: undefined,
+      };
+      mediaList = normalizedReply.mediaUrls;
+    }
     const hasMedia = mediaList.length > 0;
     if (!reply?.text && !hasMedia) {
       if (reply?.audioAsVoice) {
