@@ -702,6 +702,7 @@ type DirectReadIntent =
   | { kind: "send_file"; path: string; label: string }
   | { kind: "rename_path"; source: string; destination: string; label: string }
   | { kind: "move_path"; source: string; destination: string; label: string }
+  | { kind: "quarantine_path"; path: string; label: string }
   | { kind: "mkdir_path"; path: string; label: string }
   | { kind: "add_allowed_root"; root: string }
   | { kind: "remove_allowed_root"; root: string }
@@ -1114,6 +1115,9 @@ function describeDirectReadProposal(intent: DirectReadIntent): string {
   if (intent.kind === "move_path") {
     return `Suggested pc-control action: move \`${intent.label}\` to \`${intent.destination}\`.`;
   }
+  if (intent.kind === "quarantine_path") {
+    return `Suggested pc-control action: move \`${intent.label}\` into the managed quarantine area.`;
+  }
   if (intent.kind === "mkdir_path") {
     return `Suggested pc-control action: create folder \`${intent.label}\` at \`${intent.path}\`.`;
   }
@@ -1205,6 +1209,22 @@ async function parseDirectReadIntent(
         kind: "move_path",
         source: selected.path,
         destination: path.posix.join(destinationRoot, path.posix.basename(selected.path)),
+        label: selected.name,
+      };
+    }
+  }
+  const quarantineMatch =
+    /\b(?:quarantine|archive|hide)\s+(?:no|number|#)?\s*(\d+)\b/i.exec(normalized);
+  if (quarantineMatch?.[1]) {
+    const selected = findContextEntryByIndex(recentContext, Number.parseInt(quarantineMatch[1], 10), [
+      "file",
+      "directory",
+      "unknown",
+    ]);
+    if (selected) {
+      return {
+        kind: "quarantine_path",
+        path: selected.path,
         label: selected.name,
       };
     }
@@ -1691,6 +1711,26 @@ async function executeDirectReadIntent(params: {
         : `Moved \`${activeIntent.label}\` to \`${activeIntent.destination}\`.`,
     };
   }
+  if (activeIntent.kind === "quarantine_path") {
+    if (!params.config.allowWriteOperations) {
+      throw new Error("pc-control write operations are not enabled");
+    }
+    const result = await callPcControlBridgeDirect(params.config, {
+      request_id: `telegram-quarantine-${Date.now()}`,
+      operation: "fs.quarantine",
+      arguments: {
+        path: activeIntent.path,
+      },
+      actor,
+    });
+    await clearDirectRecentContext(params.sessionKey);
+    return {
+      kind: "text",
+      text: result?.result?.destination
+        ? `Moved \`${activeIntent.label}\` into quarantine at \`${String(result.result.destination)}\`.`
+        : `Moved \`${activeIntent.label}\` into the managed quarantine area.`,
+    };
+  }
   if (activeIntent.kind === "mkdir_path") {
     if (!params.config.allowWriteOperations) {
       throw new Error("pc-control write operations are not enabled");
@@ -2015,7 +2055,7 @@ export async function tryHandleForcedPcControlReadTelegram(
         replies: [
           {
             text:
-              "I can keep this accurate if you name a specific pc-control action first. Ask to search, browse, send a selected file, rename a numbered entry, list allowed roots, show drives, or run a health check.",
+              "I can keep this accurate if you name a specific pc-control action first. Ask to search, browse, send a selected file, rename, move, or quarantine a numbered entry, list allowed roots, show drives, or run a health check.",
             isError: true,
           } satisfies ReplyPayload,
         ],
