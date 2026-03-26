@@ -1,56 +1,27 @@
 # Configuration
 
-The current runtime code is still early-stage and not all of these knobs are
-implemented yet. This document defines the intended long-term configuration
-surface.
+## Purpose
 
-## Core plugin config
+This document describes the configuration areas this Telegram replacement should own.
 
-Suggested shape:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "telegram": {
-        "config": {
-          "enhancedDelivery": {
-            "forceDocumentForLocalImages": true
-          },
-          "execApprovals": {
-            "suppressFallbackTextWhenButtonsExist": true
-          },
-          "shortcutIntents": {
-            "enabled": true
-          },
-          "integrations": {
-            "pcControl": {
-              "enabled": true,
-              "pluginId": "pc-control"
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-## Intended configurable areas
+## Intended Areas
 
 - delivery policy
-  - send certain media as document instead of photo
-  - local staged media handling
+  - whether certain local media should be sent as document vs photo
 - approval UX
-  - hide duplicate prose when Telegram button flow already exists
-- shortcut intents
-  - map certain Telegram phrasing to registered integrations
+  - whether button flows suppress duplicate prose
+- shortcut routing
+  - Telegram-specific shortcuts that should resolve to integrations
 - integration bindings
-  - let another plugin claim a shortcut behavior without hardcoding all logic here
+  - opt-in hooks for domain plugins such as `pc-control`
 
-## What should stay out of config
+## What Should Stay Out Of This Plugin
 
-- machine-specific host paths
+- host path policy
 - bridge secrets
-- Windows-only assumptions
-- hardcoded `pc-control` behavior as the only supported integration
+- Windows-specific assumptions
+- domain-specific logic that belongs in another plugin
+
+## Design Rule
+
+This plugin should stay Telegram-specific. If a feature is really about host policy or bridge behavior, it belongs outside this repo.

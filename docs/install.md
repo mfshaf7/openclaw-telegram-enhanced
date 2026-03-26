@@ -1,28 +1,24 @@
 # Install
 
-This plugin is intended to replace the bundled Telegram plugin through the
-supported bundled-plugin seam.
+## Purpose
 
-## Recommended production install shape
+This plugin is intended to replace the bundled OpenClaw Telegram plugin through the bundled-plugin seam.
 
-1. Build a custom OpenClaw image that replaces `/app/extensions/telegram`
-   with this plugin.
-2. Keep the runtime plugin id as `telegram`.
-3. Keep `plugins.allow` pinned if you use an allowlist.
-4. Enable the Telegram channel normally through `channels.telegram.enabled`.
+## Supported Deployment Shape
 
-## Why this is the supported clean path
+1. build a custom OpenClaw image
+2. replace the bundled `/app/extensions/telegram` directory with this plugin
+3. keep the runtime plugin id as `telegram`
 
-OpenClaw treats built-in channel ids as bundled plugins first.
+## Why This Is The Supported Path
 
-If you load another `telegram` plugin through `plugins.load.paths`, the loader
-will intentionally treat that as a duplicate-id override and emit warnings.
+`telegram` is a built-in channel id.
 
-If you replace the bundled `telegram` plugin inside the bundled plugin tree
-instead, there is only one `telegram` plugin candidate and the duplicate-id
-warning goes away.
+If you try to load another `telegram` plugin through generic plugin path overrides, the runtime treats that as a duplicate-id override.
 
-## Example config shape
+Replacing the bundled plugin instead gives the runtime exactly one `telegram` plugin candidate.
+
+## Example Runtime Shape
 
 ```json
 {
@@ -39,22 +35,6 @@ warning goes away.
 
 ## Notes
 
-- The plugin id remains `telegram`.
-- The repository/project name can still be `openclaw-telegram-enhanced`.
-- The package name should stay compatible with the plugin id to avoid loader
-  mismatch warnings. In this repository the package name is
-  `@mfshaf7/telegram-plugin`.
-- `plugins.load.paths` is only for short-lived development and local debugging.
-  Do not treat it as the supported steady-state deployment path for a built-in
-  channel replacement.
-- The clean production result is exactly one runtime `telegram` plugin source:
-  the bundled replacement in the image.
-
-## Dependency note
-
-Because this is a bundled channel replacement, it needs Telegram runtime
-dependencies available at load time.
-
-In the recommended image-based deployment, those dependencies come from the
-OpenClaw runtime image and the replacement plugin directory you copy into the
-bundled plugins tree.
+- runtime plugin id remains `telegram`
+- repository name can still be `openclaw-telegram-enhanced`
+- short-lived dev experimentation can still use local override paths, but that is not the preferred long-lived deployment path

@@ -1,65 +1,77 @@
 # openclaw-telegram-enhanced
 
-Enhanced Telegram channel replacement for OpenClaw.
+`openclaw-telegram-enhanced` is a bundled Telegram channel replacement for OpenClaw.
 
-It improves Telegram-specific delivery behavior, approval UX, and integration
-hooks without carrying a broad OpenClaw core fork.
+It exists because some Telegram behavior belongs at the channel layer, not in OpenClaw core and not in domain plugins like `pc-control`.
 
-This project provides a Telegram plugin implementation that keeps the runtime
-plugin id as `telegram`, so it can replace the bundled Telegram channel plugin
-through the supported bundled-plugin seam.
+## What This Repository Is For
 
-It is meant for Telegram-specific UX and delivery improvements that should not
-live inside OpenClaw core, for example:
-- better local media delivery behavior
-- Telegram-specific approval UX improvements
-- shortcut intent handling
-- integration hooks for plugins like `pc-control`
+This repository is for Telegram-specific behavior such as:
 
-What this is not:
-- not a host-control plugin
-- not a replacement for `pc-control-bridge`
-- not a generic OpenClaw core fork
+- delivery shaping
+- button-based approval UX
+- local/staged media delivery
+- deterministic Telegram-side routing helpers
+- integration hooks for domain plugins
 
-## Current feature set
+It is not for:
 
-- replace the bundled Telegram channel plugin through the bundled plugin tree
-- suppress duplicate approval prose when Telegram button approvals already exist
-- support document-style delivery for staged local media
-- provide a host screenshot shortcut integration path used by `pc-control`
+- host-control policy
+- Windows bridge enforcement
+- generic OpenClaw runtime orchestration
 
-## Install model
+## Architecture Role
 
-The supported production model is:
+```mermaid
+flowchart LR
+    User[Telegram user]
+    Plugin[openclaw-telegram-enhanced]
+    Gateway[OpenClaw runtime]
+    Domain[Domain plugin such as pc-control]
 
-- keep runtime plugin id as `telegram`
-- ship this plugin inside the bundled plugins tree used by the OpenClaw image
-- replace the bundled `telegram` directory in the image or point
-  `OPENCLAW_BUNDLED_PLUGINS_DIR` at a full replacement bundled tree
-- do not rely on `plugins.load.paths` to shadow the bundled Telegram plugin in production
+    User --> Plugin --> Gateway --> Domain
+```
 
-The package name also needs to stay compatible with the manifest id to avoid
-loader warnings. For that reason the package name is `telegram-plugin`, while
-the repository/project name can stay `openclaw-telegram-enhanced`.
+This plugin owns Telegram-specific transport and UX behavior. Domain plugins own domain logic.
 
-Development note:
+## Why It Exists Separately From `pc-control`
 
-- a config-path or linked-path load can still be useful for short-lived local
-  experiments
-- it is not the supported long-lived deployment path for this repository
-- the production target remains one bundled `telegram` plugin candidate in the
-  image, not a duplicate-id override at runtime
+`pc-control` is only one integration.
 
-See:
-- [Architecture](docs/architecture.md)
-- [Install](docs/install.md)
-- [Configuration](docs/configuration.md)
+This repository exists so Telegram-specific improvements stay reusable even when the domain behavior changes. For example:
 
-## Relationship to pc-control
+- `pc-control` can use it for screenshots and file delivery
+- another plugin could later use the same button and media behavior
 
-`pc-control` is one integration, not the identity of this plugin.
+## Deployment Model
 
-The goal is:
-- `openclaw-telegram-enhanced` owns Telegram-specific behavior
-- `pc-control` plugs into that behavior for host screenshot/file flows
-- future plugins can reuse the same Telegram enhancement layer for other use cases
+This plugin replaces the bundled OpenClaw `telegram` channel through the bundled-plugin seam.
+
+Important distinction:
+
+- repository/project name: `openclaw-telegram-enhanced`
+- runtime plugin id: `telegram`
+
+That is intentional. The runtime must still see it as the `telegram` channel plugin.
+
+## Main Capabilities
+
+- bundled Telegram channel replacement
+- document-style delivery for staged local media
+- button-driven approval flows
+- deterministic routing hooks for selected Telegram actions
+- integration support for `pc-control`
+
+## Start Here
+
+Read in this order:
+
+1. [docs/architecture.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/architecture.md)
+2. [docs/install.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/install.md)
+3. [docs/configuration.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/configuration.md)
+
+## Relationship To Other Repositories
+
+- `pc-control-bridge` owns host enforcement
+- `pc-control-openclaw-plugin` exposes host operations as tools
+- `openclaw-telegram-enhanced` owns Telegram-specific delivery and UX behavior

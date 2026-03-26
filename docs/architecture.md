@@ -1,53 +1,50 @@
 # Architecture
 
-`openclaw-telegram-enhanced` is a Telegram channel replacement plugin for OpenClaw.
+## Purpose
 
-## Design goal
+This document explains where `openclaw-telegram-enhanced` sits in the overall OpenClaw system.
 
-Keep Telegram-specific behavior outside OpenClaw core while still letting the
-runtime replace the bundled Telegram plugin intentionally through the bundled
-plugin tree.
+## System Position
 
-## Key idea
+```mermaid
+flowchart LR
+    User[Telegram user]
+    Telegram[openclaw-telegram-enhanced]
+    Gateway[OpenClaw runtime]
+    Domain[Domain plugin]
 
-- package name: compatible with the `telegram` manifest id
-- runtime plugin id: still `telegram`
+    User --> Telegram --> Gateway --> Domain
+```
 
-That split matters because OpenClaw resolves plugin precedence by plugin id.
-To replace the bundled Telegram plugin cleanly, this plugin must still register
-as `telegram` and must not be loaded as a second config-path duplicate.
+## What This Plugin Owns
 
-In this repository the package name is `@mfshaf7/telegram-plugin`, while the
-runtime plugin id remains `telegram`.
-
-## Boundaries
-
-This plugin should own:
 - Telegram delivery behavior
-- Telegram approval UX behavior
-- Telegram-native shortcut routing
-- Telegram-specific local media handling
+- Telegram approval UX
+- Telegram-specific shortcut routing
+- Telegram handling for local/staged media
 
-This plugin should not own:
-- host-control logic
-- bridge security policy
+## What This Plugin Does Not Own
+
+- host-control policy
+- bridge security rules
 - Windows-specific execution
-- generic OpenClaw reply/core behavior
+- generic OpenClaw core behavior
 
-## Integration model
+## Integration Model
 
-General pattern:
-- `openclaw-telegram-enhanced` handles Telegram-specific transport concerns
-- domain plugins provide the actual business logic
+The intended pattern is:
+
+- `openclaw-telegram-enhanced` handles Telegram-specific transport and UX
+- domain plugins provide the actual domain logic
 
 Example:
-- `pc-control` provides typed host tools
-- this plugin provides Telegram-side screenshot/document delivery behavior
 
-## Why this is cleaner than patching core
+- `pc-control` provides typed host operations
+- this plugin provides the Telegram-side confirmation, screenshot, and file-delivery behavior
 
-- update surface is smaller
-- behavior is versionable as a plugin
-- the replacement lives on the supported bundled-plugin seam
-- repo boundary is clearer
-- OpenClaw base can stay close to upstream
+## Why This Is Better Than Patching Core
+
+- smaller change surface
+- clearer repo boundary
+- cleaner upgrades against upstream OpenClaw
+- Telegram behavior stays versioned as a channel replacement instead of leaking into core
