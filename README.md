@@ -66,9 +66,9 @@ That is intentional. The runtime must still see it as the `telegram` channel plu
 
 Read in this order:
 
-1. [docs/architecture.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/architecture.md)
-2. [docs/install.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/install.md)
-3. [docs/configuration.md](/home/mfshaf7/projects/openclaw-telegram-enhanced/docs/configuration.md)
+1. [docs/architecture.md](docs/architecture.md)
+2. [docs/install.md](docs/install.md)
+3. [docs/configuration.md](docs/configuration.md)
 
 ## Relationship To Other Repositories
 
