@@ -221,8 +221,6 @@ const READ_ONLY_PC_CONTROL_HINTS = [
   /\blook for\b/i,
   /\bwhere is\b/i,
   /\bwhere's\b/i,
-  /\bwhat about\b/i,
-  /\bhow about\b/i,
 ];
 
 const NON_PC_CONTROL_ESCAPE_HINTS = [
@@ -346,7 +344,7 @@ function extractGeneralQuery(text: string): string | null {
     return null;
   }
   const directMatch =
-    /(?:find|search|locate|look for|look up|where is|where's|what about|how about)\s+(.+)$/i.exec(
+    /(?:find|search|locate|look for|look up|where is|where's)\s+(.+)$/i.exec(
       normalized,
     );
   if (!directMatch?.[1]) {
