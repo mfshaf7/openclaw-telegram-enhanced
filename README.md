@@ -54,6 +54,17 @@ Important distinction:
 
 That is intentional. The runtime must still see it as the `telegram` channel plugin.
 
+## Relationship To The Deployment Workspace
+
+This repository is the canonical Telegram source repository.
+
+In the isolated deployment workflow, the deployment workspace may also carry a copy under `openclaw-telegram-enhanced/` so the bundled image build can copy it directly into the runtime image.
+
+Operators should treat:
+
+- this repository as the canonical source for Telegram code and repo-specific docs
+- the deployment workspace copy as the bundled build input that must be kept aligned intentionally
+
 ## Main Capabilities
 
 - bundled Telegram channel replacement
