@@ -702,7 +702,15 @@ type DirectReadIntent =
   | { kind: "send_file"; path: string; label: string }
   | { kind: "rename_path"; source: string; destination: string; label: string }
   | { kind: "move_path"; source: string; destination: string; label: string }
+  | {
+      kind: "move_paths";
+      items: Array<{ source: string; destination: string; label: string }>;
+    }
   | { kind: "quarantine_path"; path: string; label: string }
+  | {
+      kind: "quarantine_paths";
+      items: Array<{ path: string; label: string }>;
+    }
   | { kind: "mkdir_path"; path: string; label: string }
   | { kind: "add_allowed_root"; root: string }
   | { kind: "remove_allowed_root"; root: string }
@@ -940,6 +948,23 @@ function parseIndexedSelection(text: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function parseIndexedSelections(text: string): number[] {
+  const matches = [...text.matchAll(/\b(?:no|number|#)?\s*(\d+)\b/gi)];
+  const selections: number[] = [];
+  for (const match of matches) {
+    const raw = match[1];
+    if (!raw) {
+      continue;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0 || selections.includes(parsed)) {
+      continue;
+    }
+    selections.push(parsed);
+  }
+  return selections;
+}
+
 function findContextEntryByIndex(
   context: DirectRecentContext | null,
   index: number | null,
@@ -956,6 +981,19 @@ function findContextEntryByIndex(
       return !allowedTypes || allowedTypes.includes(entry.type);
     }) ?? null
   );
+}
+
+function findContextEntriesByIndices(
+  context: DirectRecentContext | null,
+  indices: number[],
+  allowedTypes?: Array<DirectRecentContext["entries"][number]["type"]>,
+) {
+  if (!context || indices.length === 0) {
+    return [];
+  }
+  return indices
+    .map((index) => findContextEntryByIndex(context, index, allowedTypes))
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 }
 
 function findSingleContextEntry(
@@ -1115,8 +1153,14 @@ function describeDirectReadProposal(intent: DirectReadIntent): string {
   if (intent.kind === "move_path") {
     return `Suggested pc-control action: move \`${intent.label}\` to \`${intent.destination}\`.`;
   }
+  if (intent.kind === "move_paths") {
+    return `Suggested pc-control action: move ${intent.items.length} selected entries in a single operation.`;
+  }
   if (intent.kind === "quarantine_path") {
     return `Suggested pc-control action: move \`${intent.label}\` into the managed quarantine area.`;
+  }
+  if (intent.kind === "quarantine_paths") {
+    return `Suggested pc-control action: move ${intent.items.length} selected entries into the managed quarantine area.`;
   }
   if (intent.kind === "mkdir_path") {
     return `Suggested pc-control action: create folder \`${intent.label}\` at \`${intent.path}\`.`;
@@ -1195,37 +1239,58 @@ async function parseDirectReadIntent(
       };
     }
   }
-  const moveMatch = /\b(?:move|relocate|put)\s+(?:no|number|#)?\s*(\d+)\s+(?:to|into)\s+(.+)$/i.exec(normalized);
+  const moveMatch = /\b(?:move|relocate|put)\s+(.+?)\s+(?:to|into)\s+(.+)$/i.exec(normalized);
   if (moveMatch?.[1] && moveMatch?.[2]) {
-    const selected = findContextEntryByIndex(recentContext, Number.parseInt(moveMatch[1], 10), [
+    const selectedIndices = parseIndexedSelections(moveMatch[1]);
+    const selectedEntries = findContextEntriesByIndices(recentContext, selectedIndices, [
       "file",
       "directory",
       "unknown",
     ]);
     const destinationSpec = moveMatch[2].trim().replace(/[.?!]+$/g, "");
     const destinationRoot = await resolveRootSpecToPath(config, actor, destinationSpec, recentContext);
-    if (selected && destinationRoot) {
+    if (selectedEntries.length > 0 && destinationRoot) {
+      if (selectedEntries.length === 1) {
+        const selected = selectedEntries[0];
+        return {
+          kind: "move_path",
+          source: selected.path,
+          destination: path.posix.join(destinationRoot, path.posix.basename(selected.path)),
+          label: selected.name,
+        };
+      }
       return {
-        kind: "move_path",
-        source: selected.path,
-        destination: path.posix.join(destinationRoot, path.posix.basename(selected.path)),
-        label: selected.name,
+        kind: "move_paths",
+        items: selectedEntries.map((selected) => ({
+          source: selected.path,
+          destination: path.posix.join(destinationRoot, path.posix.basename(selected.path)),
+          label: selected.name,
+        })),
       };
     }
   }
-  const quarantineMatch =
-    /\b(?:quarantine|archive|hide)\s+(?:no|number|#)?\s*(\d+)\b/i.exec(normalized);
+  const quarantineMatch = /\b(?:quarantine|archive|hide)\s+(.+)$/i.exec(normalized);
   if (quarantineMatch?.[1]) {
-    const selected = findContextEntryByIndex(recentContext, Number.parseInt(quarantineMatch[1], 10), [
+    const selectedEntries = findContextEntriesByIndices(recentContext, parseIndexedSelections(quarantineMatch[1]), [
       "file",
       "directory",
       "unknown",
     ]);
-    if (selected) {
+    if (selectedEntries.length === 1) {
+      const selected = selectedEntries[0];
       return {
         kind: "quarantine_path",
         path: selected.path,
         label: selected.name,
+      };
+    }
+    if (selectedEntries.length > 1) {
+      return {
+        kind: "quarantine_paths",
+        items: selectedEntries.map((selected) => ({
+          path: selected.path,
+          label: selected.name,
+        })),
       };
     }
   }
@@ -1711,6 +1776,32 @@ async function executeDirectReadIntent(params: {
         : `Moved \`${activeIntent.label}\` to \`${activeIntent.destination}\`.`,
     };
   }
+  if (activeIntent.kind === "move_paths") {
+    if (!params.config.allowWriteOperations) {
+      throw new Error("pc-control write operations are not enabled");
+    }
+    let lastDestination: string | null = null;
+    for (const item of activeIntent.items) {
+      const result = await callPcControlBridgeDirect(params.config, {
+        request_id: `telegram-move-${Date.now()}`,
+        operation: "fs.move",
+        arguments: {
+          source: item.source,
+          destination: item.destination,
+        },
+        actor,
+      });
+      lastDestination =
+        typeof result?.result?.destination === "string" && result.result.destination.trim()
+          ? result.result.destination
+          : item.destination;
+    }
+    await clearDirectRecentContext(params.sessionKey);
+    return {
+      kind: "text",
+      text: `Moved ${activeIntent.items.length} entries to \`${path.posix.dirname(lastDestination ?? activeIntent.items[0]?.destination ?? ".")}\`.`,
+    };
+  }
   if (activeIntent.kind === "quarantine_path") {
     if (!params.config.allowWriteOperations) {
       throw new Error("pc-control write operations are not enabled");
@@ -1729,6 +1820,26 @@ async function executeDirectReadIntent(params: {
       text: result?.result?.destination
         ? `Moved \`${activeIntent.label}\` into quarantine at \`${String(result.result.destination)}\`.`
         : `Moved \`${activeIntent.label}\` into the managed quarantine area.`,
+    };
+  }
+  if (activeIntent.kind === "quarantine_paths") {
+    if (!params.config.allowWriteOperations) {
+      throw new Error("pc-control write operations are not enabled");
+    }
+    for (const item of activeIntent.items) {
+      await callPcControlBridgeDirect(params.config, {
+        request_id: `telegram-quarantine-${Date.now()}`,
+        operation: "fs.quarantine",
+        arguments: {
+          path: item.path,
+        },
+        actor,
+      });
+    }
+    await clearDirectRecentContext(params.sessionKey);
+    return {
+      kind: "text",
+      text: `Moved ${activeIntent.items.length} entries into the managed quarantine area.`,
     };
   }
   if (activeIntent.kind === "mkdir_path") {
