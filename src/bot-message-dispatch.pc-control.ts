@@ -479,7 +479,8 @@ function formatHostOverviewReply(result: Record<string, unknown>): string {
           const name = typeof entry?.name === "string" ? entry.name : "?";
           const windowsPath = typeof entry?.windowsPath === "string" ? entry.windowsPath : "";
           const free = formatByteCount(entry?.freeBytes);
-          return `- ${name}: ${windowsPath}${free !== "unknown" ? ` (free ${free})` : ""}`;
+          const label = windowsPath || name;
+          return `- ${label}${free !== "unknown" ? ` (free ${free})` : ""}`;
         })
         .join("\n")
     : "- none";
