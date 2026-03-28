@@ -11,14 +11,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { deliverReplies } from "./bot/delivery.js";
 
-const DEFAULT_PC_CONTROL_AUTH_TOKEN_ENV = "PC_CONTROL_BRIDGE_TOKEN";
-const DEFAULT_PC_CONTROL_TIMEOUT_MS = 10_000;
+const DEFAULT_HOST_CONTROL_AUTH_TOKEN_ENV = "OPENCLAW_HOST_BRIDGE_TOKEN";
+const DEFAULT_HOST_CONTROL_TIMEOUT_MS = 10_000;
 const DIRECT_READ_PROPOSAL_TTL_MS = 10 * 60 * 1000;
-const DEFAULT_PC_CONTROL_OPERATION_TIMEOUTS_MS: Record<string, number> = {
+const DEFAULT_HOST_CONTROL_OPERATION_TIMEOUTS_MS: Record<string, number> = {
   "display.screenshot": 20_000,
 };
 
-type PcControlTelegramConfig = {
+type HostControlTelegramConfig = {
   bridgeUrl: string;
   authTokenEnv: string;
   authToken: string;
@@ -51,7 +51,7 @@ function toOperationTimeouts(value: unknown): Record<string, number> {
   return output;
 }
 
-function toPcControlSharedPathMap(value: unknown): { from: string; to: string } | undefined {
+function toHostControlSharedPathMap(value: unknown): { from: string; to: string } | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
@@ -76,8 +76,8 @@ function deriveRecoveryUrl(bridgeUrl: string): string {
   }
 }
 
-function resolvePcControlTelegramConfig(cfg: OpenClawConfig): PcControlTelegramConfig | null {
-  const pluginEntry = cfg.plugins?.entries?.["pc-control"];
+function resolveHostControlTelegramConfig(cfg: OpenClawConfig): HostControlTelegramConfig | null {
+  const pluginEntry = cfg.plugins?.entries?.["host-control"];
   const pluginCfg =
     pluginEntry?.config && typeof pluginEntry.config === "object" && !Array.isArray(pluginEntry.config)
       ? pluginEntry.config
@@ -89,12 +89,12 @@ function resolvePcControlTelegramConfig(cfg: OpenClawConfig): PcControlTelegramC
   const authTokenEnv =
     typeof pluginCfg.authTokenEnv === "string" && pluginCfg.authTokenEnv.trim()
       ? pluginCfg.authTokenEnv.trim()
-      : DEFAULT_PC_CONTROL_AUTH_TOKEN_ENV;
+      : DEFAULT_HOST_CONTROL_AUTH_TOKEN_ENV;
   const authToken = process.env[authTokenEnv]?.trim() ?? "";
   const recoveryUrl =
     (typeof pluginCfg.recoveryUrl === "string" && pluginCfg.recoveryUrl.trim()
       ? pluginCfg.recoveryUrl.trim()
-      : process.env.PC_CONTROL_RECOVERY_URL?.trim()) || deriveRecoveryUrl(bridgeUrl);
+      : process.env.OPENCLAW_HOST_RECOVERY_URL?.trim()) || deriveRecoveryUrl(bridgeUrl);
   const recoveryAuthTokenEnv =
     typeof pluginCfg.recoveryAuthTokenEnv === "string" && pluginCfg.recoveryAuthTokenEnv.trim()
       ? pluginCfg.recoveryAuthTokenEnv.trim()
@@ -107,21 +107,21 @@ function resolvePcControlTelegramConfig(cfg: OpenClawConfig): PcControlTelegramC
     recoveryUrl: recoveryUrl.replace(/\/+$/, ""),
     recoveryAuthTokenEnv,
     recoveryAuthToken,
-    timeoutMs: toPositiveNumber(pluginCfg.timeoutMs, DEFAULT_PC_CONTROL_TIMEOUT_MS),
+    timeoutMs: toPositiveNumber(pluginCfg.timeoutMs, DEFAULT_HOST_CONTROL_TIMEOUT_MS),
     recoveryTimeoutMs: toPositiveNumber(pluginCfg.recoveryTimeoutMs, 20_000),
     operationTimeoutsMs: {
-      ...DEFAULT_PC_CONTROL_OPERATION_TIMEOUTS_MS,
+      ...DEFAULT_HOST_CONTROL_OPERATION_TIMEOUTS_MS,
       ...toOperationTimeouts(pluginCfg.operationTimeoutsMs),
     },
-    sharedPathMap: toPcControlSharedPathMap(pluginCfg.sharedPathMap),
+    sharedPathMap: toHostControlSharedPathMap(pluginCfg.sharedPathMap),
     allowWriteOperations: pluginCfg.allowWriteOperations === true,
     allowAdminOperations: pluginCfg.allowWriteOperations === true || pluginCfg.allowAdminOperations === true,
     allowExportOperations: pluginCfg.allowExportOperations !== false,
   };
 }
 
-function remapPcControlSharedPath(
-  sharedPathMap: PcControlTelegramConfig["sharedPathMap"],
+function remapHostControlSharedPath(
+  sharedPathMap: HostControlTelegramConfig["sharedPathMap"],
   value: string,
 ): string {
   const raw = value.trim();
@@ -174,7 +174,7 @@ function resolveTelegramScreenshotIntentText(params: {
   return "";
 }
 
-function resolveTelegramPcControlIntentText(params: {
+function resolveTelegramHostControlIntentText(params: {
   ctxPayload: { BodyForAgent?: unknown; Body?: unknown; RawBody?: unknown };
   msg: { text?: unknown; caption?: unknown };
 }): string {
@@ -202,7 +202,7 @@ function normalizeTelegramIntentLine(raw: string): string {
   return nonEmptyLines.at(-1) ?? withoutCodeBlocks.trim();
 }
 
-const READ_ONLY_PC_CONTROL_HINTS = [
+const READ_ONLY_HOST_CONTROL_HINTS = [
   /\ballowed roots?\b/i,
   /\bhealth check\b/i,
   /\bdrives?\b/i,
@@ -223,7 +223,7 @@ const READ_ONLY_PC_CONTROL_HINTS = [
   /\bwhere's\b/i,
 ];
 
-const NON_PC_CONTROL_ESCAPE_HINTS = [
+const NON_HOST_CONTROL_ESCAPE_HINTS = [
   /\bnot pc-?control\b/i,
   /\bnot on (?:my )?(?:pc|computer|desktop|host)\b/i,
   /\banswer normally\b/i,
@@ -275,15 +275,15 @@ const SEARCH_QUERY_STOP_WORDS = new Set([
   "with",
 ]);
 
-function looksLikeReadOnlyPcControlText(text: string): boolean {
-  return READ_ONLY_PC_CONTROL_HINTS.some((pattern) => pattern.test(text));
+function looksLikeReadOnlyHostControlText(text: string): boolean {
+  return READ_ONLY_HOST_CONTROL_HINTS.some((pattern) => pattern.test(text));
 }
 
-function looksLikeNonPcControlEscape(text: string): boolean {
-  return NON_PC_CONTROL_ESCAPE_HINTS.some((pattern) => pattern.test(text));
+function looksLikeNonHostControlEscape(text: string): boolean {
+  return NON_HOST_CONTROL_ESCAPE_HINTS.some((pattern) => pattern.test(text));
 }
 
-function isAffirmativePcControlText(text: string): boolean {
+function isAffirmativeHostControlText(text: string): boolean {
   return /^(?:yes|y|ok|okay|sure|proceed|do it|go ahead|continue|yes proceed)\b/i.test(text.trim());
 }
 
@@ -390,7 +390,7 @@ function resolveProposalStorePath(sessionKey: unknown): string | null {
   if (!rawSessionKey || !agentId || !homeDir) {
     return null;
   }
-  return path.join(homeDir, ".openclaw", "agents", agentId, "sessions", "pc-control-direct-proposals.json");
+  return path.join(homeDir, ".openclaw", "agents", agentId, "sessions", "host-control-direct-proposals.json");
 }
 
 function extractRootAlias(text: string): string | null {
@@ -714,7 +714,7 @@ type DirectReadIntent =
   | { kind: "mkdir_path"; path: string; label: string }
   | { kind: "add_allowed_root"; root: string }
   | { kind: "remove_allowed_root"; root: string }
-  | { kind: "self_heal"; action: "bridge_restart" | "bridge_repair_network" | "gateway_restart" | "recheck_health" | "full_pc_control_repair" };
+  | { kind: "self_heal"; action: "bridge_restart" | "bridge_repair_network" | "gateway_restart" | "recheck_health" | "full_host_control_repair" };
 
 type DirectReadProposal = {
   proposalId: string;
@@ -750,7 +750,7 @@ function resolveDirectContextStorePath(sessionKey: unknown): string | null {
   if (!proposalStorePath) {
     return null;
   }
-  return proposalStorePath.replace(/pc-control-direct-proposals\.json$/, "pc-control-direct-context.json");
+  return proposalStorePath.replace(/host-control-direct-proposals\.json$/, "host-control-direct-context.json");
 }
 
 async function loadDirectReadProposal(sessionKey: unknown): Promise<DirectReadProposal | null> {
@@ -1019,7 +1019,7 @@ function buildBrowseEntryPath(basePath: string, entry: Record<string, unknown>):
 }
 
 function extractMediaPathsFromBridgeResult(
-  config: PcControlTelegramConfig,
+  config: HostControlTelegramConfig,
   payload: Record<string, unknown>,
 ): string[] {
   const rawPaths: string[] = [];
@@ -1041,7 +1041,7 @@ function extractMediaPathsFromBridgeResult(
     rawPaths.unshift(payload.path.trim());
   }
   return [
-    ...new Set(rawPaths.map((value) => remapPcControlSharedPath(config.sharedPathMap, value)).filter(Boolean)),
+    ...new Set(rawPaths.map((value) => remapHostControlSharedPath(config.sharedPathMap, value)).filter(Boolean)),
   ];
 }
 
@@ -1064,10 +1064,10 @@ function normalizeDirectAbsolutePath(value: string): string {
 }
 
 async function loadAllowedRootsDirect(
-  config: PcControlTelegramConfig,
+  config: HostControlTelegramConfig,
   actor: Record<string, unknown>,
 ): Promise<string[]> {
-  const result = await callPcControlBridgeDirect(config, {
+  const result = await callHostControlBridgeDirect(config, {
     request_id: `telegram-allowed-roots-${Date.now()}`,
     operation: "config.allowed_roots.list",
     arguments: {},
@@ -1097,7 +1097,7 @@ function chooseAllowedRootByAlias(roots: string[], alias: string): string | null
 }
 
 async function resolveRootSpecToPath(
-  config: PcControlTelegramConfig,
+  config: HostControlTelegramConfig,
   actor: Record<string, unknown>,
   spec: string,
   recentContext: DirectRecentContext | null,
@@ -1127,60 +1127,60 @@ async function resolveRootSpecToPath(
 
 function describeDirectReadProposal(intent: DirectReadIntent): string {
   if (intent.kind === "allowed_roots") {
-    return "Suggested pc-control action: use `pc_control_list_allowed_roots` to read the current allowed roots.";
+    return "Suggested host-control action: use `host_control_list_allowed_roots` to read the current allowed roots.";
   }
   if (intent.kind === "health") {
-    return "Suggested pc-control action: use `pc_control_health_check` to read the current system and bridge health.";
+    return "Suggested host-control action: use `host_control_health_check` to read the current system and bridge health.";
   }
   if (intent.kind === "discover") {
-    return "Suggested pc-control action: use `pc_control_discover_host_locations` to read available drives and top-level profile folders.";
+    return "Suggested host-control action: use `host_control_discover_host_locations` to read available drives and top-level profile folders.";
   }
   if (intent.kind === "monitor_power") {
-    return `Suggested pc-control action: turn the host monitor(s) ${intent.action === "off" ? "off" : "back on"}.`;
+    return `Suggested host-control action: turn the host monitor(s) ${intent.action === "off" ? "off" : "back on"}.`;
   }
   if (intent.kind === "browse") {
-    return `Suggested pc-control action: use \`${intent.absolute ? "pc_control_browse_host_path" : "pc_control_list_host_folder"}\` on \`${intent.path}\`.`;
+    return `Suggested host-control action: use \`${intent.absolute ? "host_control_browse_host_path" : "host_control_list_host_folder"}\` on \`${intent.path}\`.`;
   }
   if (intent.kind === "browse_named") {
-    return `Suggested pc-control action: search allowed roots for a folder named \`${intent.query}\`${intent.rootAlias ? ` scoped to \`${intent.rootAlias}\`` : ""}, then browse the exact match if found.`;
+    return `Suggested host-control action: search allowed roots for a folder named \`${intent.query}\`${intent.rootAlias ? ` scoped to \`${intent.rootAlias}\`` : ""}, then browse the exact match if found.`;
   }
   if (intent.kind === "send_file") {
-    return `Suggested pc-control action: send \`${intent.label}\` to Telegram from \`${intent.path}\`.`;
+    return `Suggested host-control action: send \`${intent.label}\` to Telegram from \`${intent.path}\`.`;
   }
   if (intent.kind === "rename_path") {
-    return `Suggested pc-control action: rename \`${intent.label}\` to \`${path.basename(intent.destination)}\`.`;
+    return `Suggested host-control action: rename \`${intent.label}\` to \`${path.basename(intent.destination)}\`.`;
   }
   if (intent.kind === "move_path") {
-    return `Suggested pc-control action: move \`${intent.label}\` to \`${intent.destination}\`.`;
+    return `Suggested host-control action: move \`${intent.label}\` to \`${intent.destination}\`.`;
   }
   if (intent.kind === "move_paths") {
-    return `Suggested pc-control action: move ${intent.items.length} selected entries in a single operation.`;
+    return `Suggested host-control action: move ${intent.items.length} selected entries in a single operation.`;
   }
   if (intent.kind === "quarantine_path") {
-    return `Suggested pc-control action: quarantine \`${intent.label}\` instead of permanently deleting it.`;
+    return `Suggested host-control action: quarantine \`${intent.label}\` instead of permanently deleting it.`;
   }
   if (intent.kind === "quarantine_paths") {
-    return `Suggested pc-control action: quarantine ${intent.items.length} selected entries instead of permanently deleting them.`;
+    return `Suggested host-control action: quarantine ${intent.items.length} selected entries instead of permanently deleting them.`;
   }
   if (intent.kind === "mkdir_path") {
-    return `Suggested pc-control action: create folder \`${intent.label}\` at \`${intent.path}\`.`;
+    return `Suggested host-control action: create folder \`${intent.label}\` at \`${intent.path}\`.`;
   }
   if (intent.kind === "add_allowed_root") {
-    return `Suggested pc-control action: add \`${intent.root}\` to allowed roots.`;
+    return `Suggested host-control action: add \`${intent.root}\` to allowed roots.`;
   }
   if (intent.kind === "remove_allowed_root") {
-    return `Suggested pc-control action: remove \`${intent.root}\` from allowed roots.`;
+    return `Suggested host-control action: remove \`${intent.root}\` from allowed roots.`;
   }
   if (intent.kind === "self_heal") {
-    return `Suggested pc-control action: run self-heal action \`${intent.action}\`.`;
+    return `Suggested host-control action: run self-heal action \`${intent.action}\`.`;
   }
-  return `Suggested pc-control action: use \`pc_control_find_ranked_files\` for query \`${intent.query}\`${intent.rootAlias ? ` scoped to \`${intent.rootAlias}\`` : ""}.`;
+  return `Suggested host-control action: use \`host_control_find_ranked_files\` for query \`${intent.query}\`${intent.rootAlias ? ` scoped to \`${intent.rootAlias}\`` : ""}.`;
 }
 
 async function parseDirectReadIntent(
   text: string,
   recentContext: DirectRecentContext | null,
-  config: PcControlTelegramConfig,
+  config: HostControlTelegramConfig,
   actor: Record<string, unknown>,
 ): Promise<DirectReadIntent | null> {
   const normalized = text.trim();
@@ -1326,7 +1326,7 @@ async function parseDirectReadIntent(
       return { kind: "remove_allowed_root", root };
     }
   }
-  if (/\b(?:repair|fix|self-heal|heal|restart)\b/i.test(normalized) && /\b(?:pc-control|bridge|gateway|connection)\b/i.test(normalized)) {
+  if (/\b(?:repair|fix|self-heal|heal|restart)\b/i.test(normalized) && /\b(?:host-control|bridge|gateway|connection)\b/i.test(normalized)) {
     const action =
       /\bgateway\b/i.test(normalized)
         ? "gateway_restart"
@@ -1336,7 +1336,7 @@ async function parseDirectReadIntent(
             ? "recheck_health"
             : /\brestart\b/i.test(normalized) && /\bbridge\b/i.test(normalized)
               ? "bridge_restart"
-              : "full_pc_control_repair";
+              : "full_host_control_repair";
     return { kind: "self_heal", action };
   }
   if (/\b(?:show|list|what are)\b/.test(lower) && /\ballowed roots?\b/.test(lower)) {
@@ -1375,8 +1375,8 @@ async function parseDirectReadIntent(
   return null;
 }
 
-async function callPcControlBridgeDirect(
-  config: PcControlTelegramConfig,
+async function callHostControlBridgeDirect(
+  config: HostControlTelegramConfig,
   payload: Record<string, unknown>,
 ) {
   if (!config.authToken) {
@@ -1386,7 +1386,7 @@ async function callPcControlBridgeDirect(
   const operation =
     typeof payload.operation === "string" && payload.operation.trim() ? payload.operation : "";
   const timeoutMs =
-    (operation && config.operationTimeoutsMs?.[operation]) || config.timeoutMs || DEFAULT_PC_CONTROL_TIMEOUT_MS;
+    (operation && config.operationTimeoutsMs?.[operation]) || config.timeoutMs || DEFAULT_HOST_CONTROL_TIMEOUT_MS;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${config.bridgeUrl}/v1/bridge`, {
@@ -1409,12 +1409,12 @@ async function callPcControlBridgeDirect(
   }
 }
 
-async function callPcControlRecoveryDirect(
-  config: PcControlTelegramConfig,
+async function callHostControlRecoveryDirect(
+  config: HostControlTelegramConfig,
   payload: Record<string, unknown>,
 ) {
   if (!config.recoveryUrl) {
-    throw new Error("Missing pc-control recovery URL");
+    throw new Error("Missing host-control recovery URL");
   }
   if (!config.recoveryAuthToken) {
     throw new Error(`Missing recovery auth token env: ${config.recoveryAuthTokenEnv}`);
@@ -1443,7 +1443,7 @@ async function callPcControlRecoveryDirect(
 }
 
 async function executeDirectReadIntent(params: {
-  config: PcControlTelegramConfig;
+  config: HostControlTelegramConfig;
   intent: DirectReadIntent;
   sessionKey: string | null;
   senderId: unknown;
@@ -1455,7 +1455,7 @@ async function executeDirectReadIntent(params: {
   };
   const activeIntent = params.intent;
   if (activeIntent.kind === "allowed_roots") {
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-allowed-roots-${Date.now()}`,
       operation: "config.allowed_roots.list",
       arguments: {},
@@ -1465,7 +1465,7 @@ async function executeDirectReadIntent(params: {
     return { kind: "text", text: formatAllowedRootsReply(result.result ?? {}) };
   }
   if (activeIntent.kind === "health") {
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-health-${Date.now()}`,
       operation: "health.check",
       arguments: {},
@@ -1475,7 +1475,7 @@ async function executeDirectReadIntent(params: {
     return { kind: "text", text: formatHealthReply(result.result ?? {}) };
   }
   if (activeIntent.kind === "discover") {
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-discover-${Date.now()}`,
       operation: "config.host_discovery.overview",
       arguments: {},
@@ -1485,7 +1485,7 @@ async function executeDirectReadIntent(params: {
     return { kind: "text", text: formatHostOverviewReply(result.result ?? {}) };
   }
   if (activeIntent.kind === "monitor_power") {
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-monitor-power-${Date.now()}`,
       operation: "display.monitor_power",
       arguments: { action: activeIntent.action },
@@ -1502,7 +1502,7 @@ async function executeDirectReadIntent(params: {
     };
   }
   if (activeIntent.kind === "browse") {
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-browse-${Date.now()}`,
       operation: activeIntent.absolute ? "config.host_discovery.browse" : "fs.list",
       arguments: { path: activeIntent.path },
@@ -1543,7 +1543,7 @@ async function executeDirectReadIntent(params: {
     };
   }
   if (activeIntent.kind === "browse_named") {
-    const rootsResult = await callPcControlBridgeDirect(params.config, {
+    const rootsResult = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-browse-named-roots-${Date.now()}`,
       operation: "config.allowed_roots.list",
       arguments: {},
@@ -1566,7 +1566,7 @@ async function executeDirectReadIntent(params: {
       scopedRoots.length > 0 ? scopedRoots : activeIntent.rootAlias ? [activeIntent.rootAlias] : allowedRoots;
     const combinedResults: Array<Record<string, unknown>> = [];
     for (const root of rootsToSearch) {
-      const searchResult = await callPcControlBridgeDirect(params.config, {
+      const searchResult = await callHostControlBridgeDirect(params.config, {
         request_id: `telegram-browse-named-${Date.now()}-${String(root).replace(/[^a-z0-9]+/gi, "-")}`,
         operation: "fs.search",
         arguments: {
@@ -1600,7 +1600,7 @@ async function executeDirectReadIntent(params: {
     }
     if (deduped.length === 1) {
       const only = deduped[0];
-      const listResult = await callPcControlBridgeDirect(params.config, {
+      const listResult = await callHostControlBridgeDirect(params.config, {
         request_id: `telegram-browse-named-list-${Date.now()}`,
         operation: "fs.list",
         arguments: {
@@ -1643,7 +1643,7 @@ async function executeDirectReadIntent(params: {
       .join("\n") };
   }
   if (activeIntent.kind === "find") {
-    const rootsResult = await callPcControlBridgeDirect(params.config, {
+    const rootsResult = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-find-roots-${Date.now()}`,
       operation: "config.allowed_roots.list",
       arguments: {},
@@ -1666,7 +1666,7 @@ async function executeDirectReadIntent(params: {
       scopedRoots.length > 0 ? scopedRoots : activeIntent.rootAlias ? [activeIntent.rootAlias] : allowedRoots;
     const combinedResults: Array<Record<string, unknown>> = [];
     for (const root of rootsToSearch) {
-      const searchResult = await callPcControlBridgeDirect(params.config, {
+      const searchResult = await callHostControlBridgeDirect(params.config, {
         request_id: `telegram-find-${Date.now()}-${String(root).replace(/[^a-z0-9]+/gi, "-")}`,
         operation: "fs.search",
         arguments: {
@@ -1718,7 +1718,7 @@ async function executeDirectReadIntent(params: {
     return { kind: "text", text: formatFindReply(activeIntent.query, deduped) };
   }
   if (activeIntent.kind === "send_file") {
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-send-file-${Date.now()}`,
       operation: "fs.stage_for_telegram",
       arguments: { path: activeIntent.path },
@@ -1726,7 +1726,7 @@ async function executeDirectReadIntent(params: {
     });
     const mediaPaths = extractMediaPathsFromBridgeResult(params.config, result.result ?? {});
     if (mediaPaths.length === 0) {
-      throw new Error("pc-control send file returned no media path");
+      throw new Error("host-control send file returned no media path");
     }
     return {
       kind: "media",
@@ -1736,9 +1736,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "rename_path") {
     if (!params.config.allowWriteOperations) {
-      throw new Error("pc-control write operations are not enabled");
+      throw new Error("host-control write operations are not enabled");
     }
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-rename-${Date.now()}`,
       operation: "fs.move",
       arguments: {
@@ -1757,9 +1757,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "move_path") {
     if (!params.config.allowWriteOperations) {
-      throw new Error("pc-control write operations are not enabled");
+      throw new Error("host-control write operations are not enabled");
     }
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-move-${Date.now()}`,
       operation: "fs.move",
       arguments: {
@@ -1778,11 +1778,11 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "move_paths") {
     if (!params.config.allowWriteOperations) {
-      throw new Error("pc-control write operations are not enabled");
+      throw new Error("host-control write operations are not enabled");
     }
     let lastDestination: string | null = null;
     for (const item of activeIntent.items) {
-      const result = await callPcControlBridgeDirect(params.config, {
+      const result = await callHostControlBridgeDirect(params.config, {
         request_id: `telegram-move-${Date.now()}`,
         operation: "fs.move",
         arguments: {
@@ -1804,9 +1804,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "quarantine_path") {
     if (!params.config.allowWriteOperations) {
-      throw new Error("pc-control write operations are not enabled");
+      throw new Error("host-control write operations are not enabled");
     }
-    const result = await callPcControlBridgeDirect(params.config, {
+    const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-quarantine-${Date.now()}`,
       operation: "fs.quarantine",
       arguments: {
@@ -1824,10 +1824,10 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "quarantine_paths") {
     if (!params.config.allowWriteOperations) {
-      throw new Error("pc-control write operations are not enabled");
+      throw new Error("host-control write operations are not enabled");
     }
     for (const item of activeIntent.items) {
-      await callPcControlBridgeDirect(params.config, {
+      await callHostControlBridgeDirect(params.config, {
         request_id: `telegram-quarantine-${Date.now()}`,
         operation: "fs.quarantine",
         arguments: {
@@ -1844,9 +1844,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "mkdir_path") {
     if (!params.config.allowWriteOperations) {
-      throw new Error("pc-control write operations are not enabled");
+      throw new Error("host-control write operations are not enabled");
     }
-    await callPcControlBridgeDirect(params.config, {
+    await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-mkdir-${Date.now()}`,
       operation: "fs.mkdir",
       arguments: { path: activeIntent.path },
@@ -1860,9 +1860,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "add_allowed_root") {
     if (!params.config.allowAdminOperations) {
-      throw new Error("pc-control admin operations are not enabled");
+      throw new Error("host-control admin operations are not enabled");
     }
-    await callPcControlBridgeDirect(params.config, {
+    await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-add-root-${Date.now()}`,
       operation: "config.allowed_roots.add",
       arguments: { root: activeIntent.root },
@@ -1876,9 +1876,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "remove_allowed_root") {
     if (!params.config.allowAdminOperations) {
-      throw new Error("pc-control admin operations are not enabled");
+      throw new Error("host-control admin operations are not enabled");
     }
-    await callPcControlBridgeDirect(params.config, {
+    await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-remove-root-${Date.now()}`,
       operation: "config.allowed_roots.remove",
       arguments: { root: activeIntent.root },
@@ -1892,9 +1892,9 @@ async function executeDirectReadIntent(params: {
   }
   if (activeIntent.kind === "self_heal") {
     if (!params.config.allowAdminOperations) {
-      throw new Error("pc-control admin operations are not enabled");
+      throw new Error("host-control admin operations are not enabled");
     }
-    await callPcControlRecoveryDirect(params.config, {
+    await callHostControlRecoveryDirect(params.config, {
       request_id: `telegram-self-heal-${Date.now()}`,
       action: activeIntent.action,
       arguments: {},
@@ -1936,7 +1936,7 @@ type ForcedScreenshotParams = {
 
 type ForcedReadParams = ForcedScreenshotParams;
 
-export async function tryHandleForcedPcControlScreenshotTelegram(
+export async function tryHandleForcedHostControlScreenshotTelegram(
   params: ForcedScreenshotParams,
 ): Promise<boolean> {
   const {
@@ -1968,13 +1968,13 @@ export async function tryHandleForcedPcControlScreenshotTelegram(
   if (!forcedScreenshotIntent) {
     return false;
   }
-  const pcControlConfig = resolvePcControlTelegramConfig(cfg);
-  if (!pcControlConfig || !pcControlConfig.allowExportOperations) {
+  const hostControlConfig = resolveHostControlTelegramConfig(cfg);
+  if (!hostControlConfig || !hostControlConfig.allowExportOperations) {
     const result = await deliverReplies({
       ...deliveryBaseOptions,
       replies: [
         {
-          text: "Host screenshot capture is not available right now because pc-control export is not enabled.",
+          text: "Host screenshot capture is not available right now because host-control export is not enabled.",
           isError: true,
         } satisfies ReplyPayload,
       ],
@@ -1993,7 +1993,7 @@ export async function tryHandleForcedPcControlScreenshotTelegram(
     // Ignore typing failures and continue with direct delivery.
   }
   try {
-    const directResult = await callPcControlBridgeDirect(pcControlConfig, {
+    const directResult = await callHostControlBridgeDirect(hostControlConfig, {
       request_id: `telegram-screenshot-${Date.now()}`,
       operation: "display.screenshot",
       arguments: {},
@@ -2024,12 +2024,12 @@ export async function tryHandleForcedPcControlScreenshotTelegram(
     const mediaPaths = [
       ...new Set(
         rawPaths
-          .map((value) => remapPcControlSharedPath(pcControlConfig.sharedPathMap, value))
+          .map((value) => remapHostControlSharedPath(hostControlConfig.sharedPathMap, value))
           .filter(Boolean),
       ),
     ];
     if (mediaPaths.length === 0) {
-      throw new Error("pc-control screenshot capture returned no media path");
+      throw new Error("host-control screenshot capture returned no media path");
     }
     const result = await deliverReplies({
       ...deliveryBaseOptions,
@@ -2088,7 +2088,7 @@ export async function tryHandleForcedPcControlScreenshotTelegram(
   }
 }
 
-export async function tryHandleForcedPcControlReadTelegram(
+export async function tryHandleForcedHostControlReadTelegram(
   params: ForcedReadParams,
 ): Promise<boolean> {
   const {
@@ -2110,7 +2110,7 @@ export async function tryHandleForcedPcControlReadTelegram(
     return false;
   }
   const intentText = normalizeTelegramIntentLine(
-    resolveTelegramPcControlIntentText({
+    resolveTelegramHostControlIntentText({
       ctxPayload,
       msg: {
         text: msg.text,
@@ -2118,11 +2118,11 @@ export async function tryHandleForcedPcControlReadTelegram(
       },
     }),
   );
-  if (looksLikeNonPcControlEscape(intentText)) {
+  if (looksLikeNonHostControlEscape(intentText)) {
     return false;
   }
-  const pcControlConfig = resolvePcControlTelegramConfig(cfg);
-  if (!pcControlConfig) {
+  const hostControlConfig = resolveHostControlTelegramConfig(cfg);
+  if (!hostControlConfig) {
     return false;
   }
   const recentContext = await loadDirectRecentContext(ctxPayload.SessionKey);
@@ -2131,12 +2131,12 @@ export async function tryHandleForcedPcControlReadTelegram(
     session_key: typeof ctxPayload.SessionKey === "string" ? ctxPayload.SessionKey : null,
     sender_id: ctxPayload.From ?? null,
   };
-  const intent = await parseDirectReadIntent(intentText, recentContext, pcControlConfig, actor);
+  const intent = await parseDirectReadIntent(intentText, recentContext, hostControlConfig, actor);
   const pendingProposal = await loadDirectReadProposal(ctxPayload.SessionKey);
-  const isAffirmativeFollowup = isAffirmativePcControlText(intentText);
-  const shouldHandleReadOnlyPcControl =
+  const isAffirmativeFollowup = isAffirmativeHostControlText(intentText);
+  const shouldHandleReadOnlyHostControl =
     intent !== null || (Boolean(pendingProposal) && isAffirmativeFollowup);
-  if (!shouldHandleReadOnlyPcControl) {
+  if (!shouldHandleReadOnlyHostControl) {
     return false;
   }
   if (isAffirmativeFollowup) {
@@ -2146,7 +2146,7 @@ export async function tryHandleForcedPcControlReadTelegram(
         replies: [
           {
             text:
-              "There is no pending pc-control action to run. Ask for a specific search, browse, send, rename, allowed-roots, or health action first.",
+              "There is no pending host-control action to run. Ask for a specific search, browse, send, rename, allowed-roots, or health action first.",
             isError: true,
           } satisfies ReplyPayload,
         ],
@@ -2166,7 +2166,7 @@ export async function tryHandleForcedPcControlReadTelegram(
         replies: [
           {
             text:
-              "I can keep this accurate if you name a specific pc-control action first. Ask to search, browse, send a selected file, rename, move, quarantine or delete a numbered entry, list allowed roots, show drives, or run a health check.",
+              "I can keep this accurate if you name a specific host-control action first. Ask to search, browse, send a selected file, rename, move, quarantine or delete a numbered entry, list allowed roots, show drives, or run a health check.",
             isError: true,
           } satisfies ReplyPayload,
         ],
@@ -2226,7 +2226,7 @@ export async function tryHandleForcedPcControlReadTelegram(
       throw new Error("Missing pending direct read proposal");
     }
     const execution = await executeDirectReadIntent({
-      config: pcControlConfig,
+      config: hostControlConfig,
       intent: activeIntent,
       sessionKey: typeof ctxPayload.SessionKey === "string" ? ctxPayload.SessionKey : null,
       senderId: ctxPayload.From ?? null,
@@ -2250,7 +2250,7 @@ export async function tryHandleForcedPcControlReadTelegram(
       replies,
     });
     if (!result.delivered) {
-      throw new Error("Telegram direct pc-control reply was not accepted");
+      throw new Error("Telegram direct host-control reply was not accepted");
     }
     await clearDirectReadProposal(ctxPayload.SessionKey);
     if (statusReactionController) {
@@ -2279,13 +2279,13 @@ export async function tryHandleForcedPcControlReadTelegram(
     clearGroupHistory();
     return true;
   } catch (err) {
-    runtime.error?.(danger(`telegram forced pc-control read dispatch failed: ${String(err)}`));
+    runtime.error?.(danger(`telegram forced host-control read dispatch failed: ${String(err)}`));
     await clearDirectReadProposal(ctxPayload.SessionKey);
     const result = await deliverReplies({
       ...deliveryBaseOptions,
       replies: [
         {
-          text: "I couldn't complete that pc-control request directly right now.",
+          text: "I couldn't complete that host-control request directly right now.",
           isError: true,
         } satisfies ReplyPayload,
       ],
@@ -2300,7 +2300,7 @@ export async function tryHandleForcedPcControlReadTelegram(
   }
 }
 
-export async function handleForcedPcControlReadCallback(params: {
+export async function handleForcedHostControlReadCallback(params: {
   action: "proceed" | "cancel";
   proposalId?: string | null;
   cfg: OpenClawConfig;
@@ -2314,8 +2314,8 @@ export async function handleForcedPcControlReadCallback(params: {
   editMessage: (text: string, buttons?: Array<Array<{ text: string; callback_data: string; style?: "danger" | "success" | "primary" }>>) => Promise<unknown>;
   clearButtons: () => Promise<unknown>;
 }): Promise<boolean> {
-  const pcControlConfig = resolvePcControlTelegramConfig(params.cfg);
-  if (!pcControlConfig) {
+  const hostControlConfig = resolveHostControlTelegramConfig(params.cfg);
+  if (!hostControlConfig) {
     return false;
   }
   const proposal =
@@ -2323,7 +2323,7 @@ export async function handleForcedPcControlReadCallback(params: {
       ? await loadDirectReadProposalById(params.sessionKey, params.proposalId)
       : null) ?? (await loadDirectReadProposal(params.sessionKey));
   if (!proposal) {
-    await params.editMessage("There is no pending pc-control action for this button.");
+    await params.editMessage("There is no pending host-control action for this button.");
     return true;
   }
   if (params.action === "cancel") {
@@ -2332,12 +2332,12 @@ export async function handleForcedPcControlReadCallback(params: {
     } else {
       await clearDirectReadProposal(params.sessionKey);
     }
-    await params.editMessage("Cancelled the pending pc-control action.");
+    await params.editMessage("Cancelled the pending host-control action.");
     return true;
   }
   try {
     const execution = await executeDirectReadIntent({
-      config: pcControlConfig,
+      config: hostControlConfig,
       intent: proposal.intent,
       sessionKey: proposal.originalSessionKey ?? params.sessionKey,
       senderId: proposal.originalSenderId ?? params.senderId ?? null,
@@ -2355,13 +2355,13 @@ export async function handleForcedPcControlReadCallback(params: {
     await params.clearButtons();
     return true;
   } catch (err) {
-    params.runtime.error?.(danger(`telegram forced pc-control callback dispatch failed: ${String(err)}`));
+    params.runtime.error?.(danger(`telegram forced host-control callback dispatch failed: ${String(err)}`));
     if (params.proposalId) {
       await clearDirectReadProposalById(params.sessionKey, params.proposalId);
     } else {
       await clearDirectReadProposal(params.sessionKey);
     }
-    await params.editMessage("I couldn't complete that pc-control action from the button.");
+    await params.editMessage("I couldn't complete that host-control action from the button.");
     return true;
   }
 }

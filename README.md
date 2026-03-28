@@ -2,7 +2,7 @@
 
 `openclaw-telegram-enhanced` is a bundled Telegram channel replacement for OpenClaw.
 
-It exists because some Telegram behavior belongs at the channel layer, not in OpenClaw core and not in domain plugins like `pc-control`.
+It exists because some Telegram behavior belongs at the channel layer, not in OpenClaw core and not in domain plugins like `host-control`.
 
 ## What This Repository Is For
 
@@ -27,20 +27,20 @@ flowchart LR
     User[Telegram user]
     Plugin[openclaw-telegram-enhanced]
     Gateway[OpenClaw runtime]
-    Domain[Domain plugin such as pc-control]
+    Domain[Domain plugin such as host-control]
 
     User --> Plugin --> Gateway --> Domain
 ```
 
 This plugin owns Telegram-specific transport and UX behavior. Domain plugins own domain logic.
 
-## Why It Exists Separately From `pc-control`
+## Why It Exists Separately From `host-control`
 
-`pc-control` is only one integration.
+`host-control` is only one integration.
 
 This repository exists so Telegram-specific improvements stay reusable even when the domain behavior changes. For example:
 
-- `pc-control` can use it for screenshots and file delivery
+- `host-control` can use it for screenshots and file delivery
 - another plugin could later use the same button and media behavior
 
 ## Deployment Model
@@ -71,7 +71,7 @@ Operators should treat:
 - document-style delivery for staged local media
 - button-driven approval flows
 - deterministic routing hooks for selected Telegram actions
-- integration support for `pc-control`
+- integration support for `host-control`
 
 ## Start Here
 
@@ -83,6 +83,6 @@ Read in this order:
 
 ## Relationship To Other Repositories
 
-- `pc-control-bridge` owns host enforcement
-- `pc-control-openclaw-plugin` exposes host operations as tools
+- `openclaw-host-bridge` owns host enforcement
+- `host-control-openclaw-plugin` exposes host operations as tools
 - `openclaw-telegram-enhanced` owns Telegram-specific delivery and UX behavior

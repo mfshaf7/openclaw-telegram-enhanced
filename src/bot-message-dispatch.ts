@@ -52,9 +52,17 @@ import {
 } from "./reasoning-lane-coordinator.js";
 import { editMessageTelegram } from "./send.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
-import { tryHandleForcedPcControlScreenshotTelegram } from "./bot-message-dispatch.pc-control.js";
+import {
+  tryHandleForcedHostControlReadTelegram,
+  tryHandleForcedHostControlScreenshotTelegram,
+} from "./bot-message-dispatch.host-control.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
+const SECURITY_ARCHITECTURE_AGENT_ID = "security-architecture";
+const SECURITY_EVIDENCE_AGENT_ID = "security-evidence";
+const SECURITY_EVIDENCE_COLLECTION_FAILED =
+  "Evidence collection failed because the evidence agent did not return a valid structured evidence bundle.";
+const DEFAULT_HOST_CONTROL_AUTH_TOKEN_ENV = "OPENCLAW_HOST_BRIDGE_TOKEN";
 
 /** Minimum chars before sending first streaming message (improves push notification UX) */
 const DRAFT_MIN_INITIAL_CHARS = 30;
@@ -118,6 +126,488 @@ type DispatchTelegramMessageParams = {
 };
 
 type TelegramReasoningLevel = "off" | "on" | "stream";
+
+type TelegramThreadSpec = {
+  id?: number;
+  scope?: string;
+};
+
+type SecurityEvidenceBundle = {
+  type: "EVIDENCE_BUNDLE";
+  question: string;
+  verified_facts: string[];
+  inferences: string[];
+  unknowns: string[];
+  confidence: string;
+  recommended_next_check: string[];
+};
+
+type SecurityBridgeConfig = {
+  bridgeUrl: string;
+  authToken: string;
+  authTokenEnv: string;
+};
+
+function extractTelegramBodyText(ctxPayload: {
+  RawBody?: string;
+  Body?: string;
+  BodyForAgent?: string;
+}): string {
+  return ctxPayload.RawBody ?? ctxPayload.BodyForAgent ?? ctxPayload.Body ?? "";
+}
+
+function resolveSecurityBridgeConfig(cfg: OpenClawConfig): SecurityBridgeConfig | null {
+  const pluginEntry = cfg.plugins?.entries?.["host-control"];
+  const pluginCfg =
+    pluginEntry?.config && typeof pluginEntry.config === "object" && !Array.isArray(pluginEntry.config)
+      ? pluginEntry.config
+      : {};
+  const bridgeUrl = typeof pluginCfg.bridgeUrl === "string" ? pluginCfg.bridgeUrl.trim() : "";
+  if (!bridgeUrl) {
+    return null;
+  }
+  const authTokenEnv =
+    typeof pluginCfg.authTokenEnv === "string" && pluginCfg.authTokenEnv.trim()
+      ? pluginCfg.authTokenEnv.trim()
+      : DEFAULT_HOST_CONTROL_AUTH_TOKEN_ENV;
+  const authToken = process.env[authTokenEnv]?.trim() ?? "";
+  if (!authToken) {
+    return null;
+  }
+  return {
+    bridgeUrl: bridgeUrl.replace(/\/+$/, ""),
+    authToken,
+    authTokenEnv,
+  };
+}
+
+async function callSecurityBridgeHealth(
+  config: SecurityBridgeConfig,
+): Promise<Record<string, unknown> | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`${config.bridgeUrl}/v1/bridge`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.authToken}`,
+      },
+      body: JSON.stringify({
+        request_id: `telegram-security-evidence-health-${Date.now()}`,
+        operation: "health.check",
+        arguments: {},
+        actor: {
+          channel: "telegram",
+          session_key: "security-evidence-orchestrator",
+          sender_id: "system",
+        },
+      }),
+      signal: controller.signal,
+    });
+    const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok || json?.ok !== true) {
+      return null;
+    }
+    return (json.result as Record<string, unknown> | undefined) ?? null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function summarizeTelegramBindings(cfg: OpenClawConfig, chatId: string): string[] {
+  const summaries: string[] = [];
+  for (const binding of cfg.bindings ?? []) {
+    if (binding?.match?.channel !== "telegram") {
+      continue;
+    }
+    const peer = binding?.match?.peer;
+    if (!peer) {
+      if (binding.agentId === "telegram-fast") {
+        summaries.push("Telegram default account fallback is routed to `telegram-fast`.");
+      }
+      continue;
+    }
+    if (peer.kind !== "group" || typeof peer.id !== "string" || !peer.id.startsWith(chatId)) {
+      continue;
+    }
+    summaries.push(`Telegram binding routes \`${peer.id}\` to \`${binding.agentId}\`.`);
+  }
+  return summaries;
+}
+
+function summarizeAgentExposure(cfg: OpenClawConfig): string[] {
+  const facts: string[] = [];
+  const agentList = cfg.agents?.list ?? [];
+  for (const agent of agentList) {
+    if (!agent?.id) {
+      continue;
+    }
+    if (agent.id === SECURITY_EVIDENCE_AGENT_ID) {
+      const allow = Array.isArray(agent.tools?.allow) ? agent.tools.allow.join(", ") : "";
+      const deny = Array.isArray(agent.tools?.deny) ? agent.tools.deny.join(", ") : "";
+      facts.push(
+        `\`${SECURITY_EVIDENCE_AGENT_ID}\` uses a constrained tool surface` +
+          `${allow ? ` (allow: ${allow})` : ""}` +
+          `${deny ? ` and deny: ${deny}` : ""}.`,
+      );
+    }
+    if (agent.id === SECURITY_ARCHITECTURE_AGENT_ID) {
+      const deny = Array.isArray(agent.tools?.deny) ? agent.tools.deny.join(", ") : "none";
+      facts.push(`\`${SECURITY_ARCHITECTURE_AGENT_ID}\` currently has a minimal denylist (${deny}).`);
+    }
+  }
+  return facts;
+}
+
+async function buildDeterministicSecurityEvidenceBundle(params: {
+  cfg: OpenClawConfig;
+  chatId: string;
+  originalText: string;
+}): Promise<SecurityEvidenceBundle> {
+  const verifiedFacts: string[] = [];
+  const inferences: string[] = [];
+  const unknowns: string[] = [];
+  const recommendedNextCheck: string[] = [];
+
+  verifiedFacts.push(...summarizeTelegramBindings(params.cfg, params.chatId));
+  verifiedFacts.push(...summarizeAgentExposure(params.cfg));
+
+  const bridgeConfig = resolveSecurityBridgeConfig(params.cfg);
+  if (bridgeConfig) {
+    verifiedFacts.push("The `host-control` plugin is configured to use an authenticated bridge URL.");
+    const health = await callSecurityBridgeHealth(bridgeConfig).catch(() => null);
+    const components =
+      health && typeof health.components === "object" && !Array.isArray(health.components)
+        ? (health.components as Record<string, unknown>)
+        : null;
+    const bridge = components?.bridge;
+    const integrations = components?.integrations;
+    const storage = components?.storage;
+    if (bridge && typeof bridge === "object" && !Array.isArray(bridge)) {
+      const bridgeOk = (bridge as Record<string, unknown>).ok === true;
+      const mode = (bridge as Record<string, unknown>).mode;
+      verifiedFacts.push(
+        `Bridge health reports OpenClaw host bridge ${bridgeOk ? "healthy" : "not healthy"}${
+          typeof mode === "string" ? ` in \`${mode}\` mode` : ""
+        }.`,
+      );
+    } else {
+      unknowns.push("Bridge health facts could not be read from the current bridge response.");
+    }
+    if (integrations && typeof integrations === "object" && !Array.isArray(integrations)) {
+      const gateway = (integrations as Record<string, unknown>).gateway;
+      const wsl = (integrations as Record<string, unknown>).wsl;
+      if (gateway && typeof gateway === "object" && !Array.isArray(gateway)) {
+        const gatewayOk = (gateway as Record<string, unknown>).ok === true;
+        const gatewayHealth = (gateway as Record<string, unknown>).health;
+        verifiedFacts.push(
+          `Gateway integration reports ${gatewayOk ? "ok" : "not ok"}${
+            typeof gatewayHealth === "string" ? ` with health \`${gatewayHealth}\`` : ""
+          }.`,
+        );
+      }
+      if (wsl && typeof wsl === "object" && !Array.isArray(wsl)) {
+        const detected = (wsl as Record<string, unknown>).detected === true;
+        const ok = (wsl as Record<string, unknown>).ok === true;
+        verifiedFacts.push(`WSL integration is ${detected ? "detected" : "not detected"} and reports ${ok ? "ok" : "not ok"}.`);
+      }
+    }
+    if (storage && typeof storage === "object" && !Array.isArray(storage)) {
+      const allowedRoots = (storage as Record<string, unknown>).allowedRoots;
+      if (Array.isArray(allowedRoots)) {
+        verifiedFacts.push(`Bridge storage policy currently exposes ${allowedRoots.length} allowed roots.`);
+      }
+    }
+  } else {
+    unknowns.push("The current runtime did not expose a usable OpenClaw host bridge configuration for evidence collection.");
+  }
+
+  inferences.push("Topic-level routing separates architecture discussion from evidence collection.");
+  inferences.push("Host-facing checks are mediated through the OpenClaw host bridge instead of direct elevated execution in Telegram.");
+  unknowns.push("The current security-architecture agent is not yet tightly tool-constrained, so judgment-path hardening is still incomplete.");
+  unknowns.push("This evidence bundle does not prove host firewall, MFA, or external network hardening.");
+  recommendedNextCheck.push("Constrain the security-architecture agent tool surface as strictly as the evidence path.");
+  recommendedNextCheck.push("Add a deterministic runtime verifier for telegram topic bindings and exposed agent tools.");
+
+  return {
+    type: "EVIDENCE_BUNDLE",
+    question: params.originalText,
+    verified_facts: verifiedFacts,
+    inferences,
+    unknowns,
+    confidence: bridgeConfig ? "medium" : "low",
+    recommended_next_check: recommendedNextCheck,
+  };
+}
+
+function shouldRunSecurityEvidenceOrchestration(params: {
+  agentId: string;
+  text: string;
+}): boolean {
+  if (params.agentId !== SECURITY_ARCHITECTURE_AGENT_ID) {
+    return false;
+  }
+  const text = params.text.toLowerCase();
+  return (
+    /\buse evidence\b/.test(text) ||
+    /\bwith evidence\b/.test(text) ||
+    /\bevidence if needed\b/.test(text) ||
+    /\bverify\b/.test(text)
+  );
+}
+
+function resolveSecurityEvidenceTopicBinding(params: {
+  cfg: OpenClawConfig;
+  chatId: string;
+}): { sessionKey: string; threadSpec: TelegramThreadSpec; accountId?: string } | null {
+  for (const binding of params.cfg.bindings ?? []) {
+    if (binding?.agentId !== SECURITY_EVIDENCE_AGENT_ID) {
+      continue;
+    }
+    const peerId = binding?.match?.peer?.id;
+    if (typeof peerId !== "string") {
+      continue;
+    }
+    const match = new RegExp(`^${params.chatId}:topic:(\\d+)$`).exec(peerId);
+    if (!match) {
+      continue;
+    }
+    const topicId = Number.parseInt(match[1] ?? "", 10);
+    if (!Number.isFinite(topicId)) {
+      continue;
+    }
+    return {
+      sessionKey: `agent:${SECURITY_EVIDENCE_AGENT_ID}:telegram:group:${params.chatId}:topic:${topicId}`,
+      threadSpec: { id: topicId, scope: "group" },
+      accountId: binding?.match?.accountId,
+    };
+  }
+  return null;
+}
+
+async function runTelegramAgentTextPass(params: {
+  agentId: string;
+  sessionKey: string;
+  body: string;
+  cfg: OpenClawConfig;
+  runtime: RuntimeEnv;
+  accountId?: string;
+  chatId: string;
+  threadSpec?: TelegramThreadSpec;
+  bot: Bot;
+  telegramDeps: TelegramBotDeps;
+  textLimit: number;
+  replyToMode: ReplyToMode;
+  silent?: boolean;
+  deliverToTelegram: boolean;
+}): Promise<{ text: string; delivered: boolean }> {
+  const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    channel: "telegram",
+    accountId: params.accountId,
+  });
+
+  const mediaLocalRoots = getAgentScopedMediaLocalRoots(params.cfg, params.agentId);
+  const parts: string[] = [];
+  let delivered = false;
+
+  await params.telegramDeps.dispatchReplyWithBufferedBlockDispatcher({
+    ctx: {
+      Body: params.body,
+      BodyForAgent: params.body,
+      RawBody: params.body,
+      SessionKey: params.sessionKey,
+    },
+    cfg: params.cfg,
+    dispatcherOptions: {
+      ...replyPipeline,
+      deliver: async (payload, info) => {
+        if (info.kind !== "final") {
+          return;
+        }
+        if (typeof payload.text === "string" && payload.text.trim().length > 0) {
+          parts.push(payload.text);
+        }
+        if (!params.deliverToTelegram) {
+          return;
+        }
+        const result = await (params.telegramDeps.deliverReplies ?? deliverReplies)({
+          replies: [payload],
+          chatId: params.chatId,
+          accountId: params.accountId,
+          sessionKeyForInternalHooks: params.sessionKey,
+          mirrorIsGroup: true,
+          mirrorGroupId: params.chatId,
+          bot: params.bot,
+          runtime: params.runtime,
+          mediaLocalRoots,
+          replyToMode: params.replyToMode,
+          textLimit: params.textLimit,
+          thread: params.threadSpec,
+          silent: params.silent,
+          mediaLoader: params.telegramDeps.loadWebMedia,
+        });
+        delivered = delivered || result.delivered;
+      },
+      onSkip: () => undefined,
+      onError: (err, info) => {
+        params.runtime.error?.(
+          danger(`telegram orchestrated ${params.agentId} ${info.kind} reply failed: ${String(err)}`),
+        );
+      },
+    },
+    replyOptions: {
+      disableBlockStreaming: true,
+      onModelSelected,
+    },
+  });
+
+  return {
+    text: parts.filter((part) => part.trim().length > 0).join("\n\n"),
+    delivered,
+  };
+}
+
+async function deliverTelegramText(params: {
+  cfg: OpenClawConfig;
+  runtime: RuntimeEnv;
+  bot: Bot;
+  telegramDeps: TelegramBotDeps;
+  agentId: string;
+  accountId?: string;
+  sessionKey: string;
+  chatId: string;
+  threadSpec?: TelegramThreadSpec;
+  replyToMode: ReplyToMode;
+  textLimit: number;
+  text: string;
+  silent?: boolean;
+}): Promise<boolean> {
+  const mediaLocalRoots = getAgentScopedMediaLocalRoots(params.cfg, params.agentId);
+  const result = await (params.telegramDeps.deliverReplies ?? deliverReplies)({
+    replies: [{ text: params.text }],
+    chatId: params.chatId,
+    accountId: params.accountId,
+    sessionKeyForInternalHooks: params.sessionKey,
+    mirrorIsGroup: true,
+    mirrorGroupId: params.chatId,
+    bot: params.bot,
+    runtime: params.runtime,
+    mediaLocalRoots,
+    replyToMode: params.replyToMode,
+    textLimit: params.textLimit,
+    thread: params.threadSpec,
+    silent: params.silent,
+    mediaLoader: params.telegramDeps.loadWebMedia,
+  });
+  return result.delivered;
+}
+
+async function tryHandleSecurityArchitectureEvidenceOrchestration(params: {
+  cfg: OpenClawConfig;
+  runtime: RuntimeEnv;
+  bot: Bot;
+  route: { agentId: string; accountId?: string };
+  chatId: string;
+  ctxPayload: {
+    SessionKey?: string;
+    RawBody?: string;
+    Body?: string;
+    BodyForAgent?: string;
+  };
+  threadSpec?: TelegramThreadSpec;
+  telegramDeps: TelegramBotDeps;
+  textLimit: number;
+  replyToMode: ReplyToMode;
+}): Promise<boolean> {
+  const originalText = extractTelegramBodyText(params.ctxPayload).trim();
+  if (
+    !params.ctxPayload.SessionKey ||
+    !shouldRunSecurityEvidenceOrchestration({
+      agentId: params.route.agentId,
+      text: originalText,
+    })
+  ) {
+    return false;
+  }
+
+  const evidenceTarget = resolveSecurityEvidenceTopicBinding({
+    cfg: params.cfg,
+    chatId: params.chatId,
+  });
+  if (!evidenceTarget) {
+    return false;
+  }
+
+  const evidenceBundle = await buildDeterministicSecurityEvidenceBundle({
+    cfg: params.cfg,
+    chatId: params.chatId,
+    originalText,
+  }).catch((err) => {
+    params.runtime.error?.(danger(`telegram deterministic evidence collection failed: ${String(err)}`));
+    return null;
+  });
+  if (!evidenceBundle) {
+    await deliverTelegramText({
+      cfg: params.cfg,
+      runtime: params.runtime,
+      bot: params.bot,
+      telegramDeps: params.telegramDeps,
+      agentId: SECURITY_ARCHITECTURE_AGENT_ID,
+      accountId: params.route.accountId,
+      sessionKey: params.ctxPayload.SessionKey,
+      chatId: params.chatId,
+      threadSpec: params.threadSpec,
+      replyToMode: params.replyToMode,
+      textLimit: params.textLimit,
+      text: SECURITY_EVIDENCE_COLLECTION_FAILED,
+    });
+    return true;
+  }
+
+  await deliverTelegramText({
+    cfg: params.cfg,
+    runtime: params.runtime,
+    bot: params.bot,
+    telegramDeps: params.telegramDeps,
+    agentId: SECURITY_EVIDENCE_AGENT_ID,
+    accountId: evidenceTarget.accountId ?? params.route.accountId,
+    sessionKey: evidenceTarget.sessionKey,
+    chatId: params.chatId,
+    threadSpec: evidenceTarget.threadSpec,
+    replyToMode: "off",
+    textLimit: params.textLimit,
+    text: JSON.stringify(evidenceBundle, null, 2),
+  });
+
+  const finalArchitecturePrompt = [
+    "Answer as the security-architecture agent.",
+    "Use the evidence below to provide the final architecture judgment.",
+    "Distinguish verified facts, inferences, and the preferred path.",
+    `Original question:\n${originalText}`,
+    `Evidence bundle:\n${JSON.stringify(evidenceBundle, null, 2)}`,
+  ].join("\n\n");
+
+  await runTelegramAgentTextPass({
+    agentId: SECURITY_ARCHITECTURE_AGENT_ID,
+    sessionKey: params.ctxPayload.SessionKey,
+    body: finalArchitecturePrompt,
+    cfg: params.cfg,
+    runtime: params.runtime,
+    accountId: params.route.accountId,
+    chatId: params.chatId,
+    threadSpec: params.threadSpec,
+    bot: params.bot,
+    telegramDeps: params.telegramDeps,
+    textLimit: params.textLimit,
+    replyToMode: params.replyToMode,
+    deliverToTelegram: true,
+  });
+
+  return true;
+}
 
 function resolveTelegramReasoningLevel(params: {
   cfg: OpenClawConfig;
@@ -470,7 +960,47 @@ export const dispatchTelegramMessage = async ({
     replyQuoteText,
   };
   if (
-    await tryHandleForcedPcControlScreenshotTelegram({
+    await tryHandleSecurityArchitectureEvidenceOrchestration({
+      cfg,
+      runtime,
+      bot,
+      route,
+      chatId: String(chatId),
+      ctxPayload,
+      threadSpec,
+      telegramDeps,
+      textLimit,
+      replyToMode,
+    })
+  ) {
+    clearGroupHistory();
+    return;
+  }
+  if (
+    await tryHandleForcedHostControlScreenshotTelegram({
+      cfg,
+      runtime,
+      isGroup,
+      chatId,
+      msg: {
+        message_id: msg.message_id,
+        text: (msg as { text?: unknown }).text,
+        caption: (msg as { caption?: unknown }).caption,
+      },
+      ctxPayload,
+      deliveryBaseOptions,
+      statusReactionController,
+      sendTyping,
+      clearGroupHistory,
+      removeAckAfterReply,
+      ackReactionPromise,
+      reactionApi,
+    })
+  ) {
+    return;
+  }
+  if (
+    await tryHandleForcedHostControlReadTelegram({
       cfg,
       runtime,
       isGroup,

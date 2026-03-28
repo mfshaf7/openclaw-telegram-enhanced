@@ -926,7 +926,7 @@ describe("deliverReplies", () => {
     await deliverWith({
       replies: [
         {
-          text: "Here is the file again\n\n![Resume](/home/node/.openclaw/media/pc-control-staging/resume.docx)",
+          text: "Here is the file again\n\n![Resume](/home/node/.openclaw/media/openclaw-host-staging/resume.docx)",
         },
       ],
       runtime,
@@ -964,7 +964,7 @@ describe("deliverReplies", () => {
     await deliverWith({
       replies: [
         {
-          text: "Here is the file again\n\n![Resume](MEDIA:/home/node/.openclaw/media/pc-control-staging/resume.docx)",
+          text: "Here is the file again\n\n![Resume](MEDIA:/home/node/.openclaw/media/openclaw-host-staging/resume.docx)",
         },
       ],
       runtime,

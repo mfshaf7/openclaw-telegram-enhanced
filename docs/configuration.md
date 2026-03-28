@@ -13,7 +13,7 @@ This document describes the configuration areas this Telegram replacement should
 - shortcut routing
   - Telegram-specific shortcuts that should resolve to integrations
 - integration bindings
-  - opt-in hooks for domain plugins such as `pc-control`
+  - opt-in hooks for domain plugins such as `host-control`
 
 ## What Should Stay Out Of This Plugin
 

@@ -39,7 +39,7 @@ The intended pattern is:
 
 Example:
 
-- `pc-control` provides typed host operations
+- `host-control` provides typed host operations
 - this plugin provides the Telegram-side confirmation, screenshot, and file-delivery behavior
 
 ## Why This Is Better Than Patching Core

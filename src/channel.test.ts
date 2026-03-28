@@ -478,7 +478,7 @@ describe("telegramPlugin duplicate token guard", () => {
       to: "12345",
       text: "",
       payload: {
-        text: "Here is the file again\n\n[Resume](/home/node/.openclaw/media/pc-control-staging/resume.docx)",
+        text: "Here is the file again\n\n[Resume](/home/node/.openclaw/media/openclaw-host-staging/resume.docx)",
       },
       accountId: "ops",
     });
@@ -487,7 +487,7 @@ describe("telegramPlugin duplicate token guard", () => {
       "12345",
       "Here is the file again",
       expect.objectContaining({
-        mediaUrl: "/home/node/.openclaw/media/pc-control-staging/resume.docx",
+        mediaUrl: "/home/node/.openclaw/media/openclaw-host-staging/resume.docx",
       }),
     );
     expect(result).toMatchObject({ channel: "telegram", messageId: "tg-5" });
@@ -503,7 +503,7 @@ describe("telegramPlugin duplicate token guard", () => {
       to: "12345",
       text: "",
       payload: {
-        text: "Here is the file again\n\n[Resume](MEDIA:/home/node/.openclaw/media/pc-control-staging/resume.docx)",
+        text: "Here is the file again\n\n[Resume](MEDIA:/home/node/.openclaw/media/openclaw-host-staging/resume.docx)",
       },
       accountId: "ops",
     });
@@ -512,7 +512,7 @@ describe("telegramPlugin duplicate token guard", () => {
       "12345",
       "Here is the file again",
       expect.objectContaining({
-        mediaUrl: "/home/node/.openclaw/media/pc-control-staging/resume.docx",
+        mediaUrl: "/home/node/.openclaw/media/openclaw-host-staging/resume.docx",
       }),
     );
     expect(result).toMatchObject({ channel: "telegram", messageId: "tg-5b" });

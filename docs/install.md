@@ -28,7 +28,7 @@ Replacing the bundled plugin instead gives the runtime exactly one `telegram` pl
     }
   },
   "plugins": {
-    "allow": ["telegram", "pc-control"]
+    "allow": ["telegram", "host-control"]
   }
 }
 ```
