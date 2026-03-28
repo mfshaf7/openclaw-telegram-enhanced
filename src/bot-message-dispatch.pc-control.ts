@@ -1157,10 +1157,10 @@ function describeDirectReadProposal(intent: DirectReadIntent): string {
     return `Suggested pc-control action: move ${intent.items.length} selected entries in a single operation.`;
   }
   if (intent.kind === "quarantine_path") {
-    return `Suggested pc-control action: move \`${intent.label}\` into the managed quarantine area.`;
+    return `Suggested pc-control action: quarantine \`${intent.label}\` instead of permanently deleting it.`;
   }
   if (intent.kind === "quarantine_paths") {
-    return `Suggested pc-control action: move ${intent.items.length} selected entries into the managed quarantine area.`;
+    return `Suggested pc-control action: quarantine ${intent.items.length} selected entries instead of permanently deleting them.`;
   }
   if (intent.kind === "mkdir_path") {
     return `Suggested pc-control action: create folder \`${intent.label}\` at \`${intent.path}\`.`;
@@ -1269,7 +1269,7 @@ async function parseDirectReadIntent(
       };
     }
   }
-  const quarantineMatch = /\b(?:quarantine|archive|hide)\s+(.+)$/i.exec(normalized);
+  const quarantineMatch = /\b(?:quarantine|archive|hide|delete)\s+(.+)$/i.exec(normalized);
   if (quarantineMatch?.[1]) {
     const selectedEntries = findContextEntriesByIndices(recentContext, parseIndexedSelections(quarantineMatch[1]), [
       "file",
@@ -1818,8 +1818,8 @@ async function executeDirectReadIntent(params: {
     return {
       kind: "text",
       text: result?.result?.destination
-        ? `Moved \`${activeIntent.label}\` into quarantine at \`${String(result.result.destination)}\`.`
-        : `Moved \`${activeIntent.label}\` into the managed quarantine area.`,
+        ? `Quarantined \`${activeIntent.label}\` at \`${String(result.result.destination)}\` instead of permanently deleting it.`
+        : `Quarantined \`${activeIntent.label}\` instead of permanently deleting it.`,
     };
   }
   if (activeIntent.kind === "quarantine_paths") {
@@ -1839,7 +1839,7 @@ async function executeDirectReadIntent(params: {
     await clearDirectRecentContext(params.sessionKey);
     return {
       kind: "text",
-      text: `Moved ${activeIntent.items.length} entries into the managed quarantine area.`,
+      text: `Quarantined ${activeIntent.items.length} entries instead of permanently deleting them.`,
     };
   }
   if (activeIntent.kind === "mkdir_path") {
@@ -2166,7 +2166,7 @@ export async function tryHandleForcedPcControlReadTelegram(
         replies: [
           {
             text:
-              "I can keep this accurate if you name a specific pc-control action first. Ask to search, browse, send a selected file, rename, move, or quarantine a numbered entry, list allowed roots, show drives, or run a health check.",
+              "I can keep this accurate if you name a specific pc-control action first. Ask to search, browse, send a selected file, rename, move, quarantine or delete a numbered entry, list allowed roots, show drives, or run a health check.",
             isError: true,
           } satisfies ReplyPayload,
         ],
