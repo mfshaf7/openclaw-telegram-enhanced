@@ -283,10 +283,6 @@ function looksLikeNonHostControlEscape(text: string): boolean {
   return NON_HOST_CONTROL_ESCAPE_HINTS.some((pattern) => pattern.test(text));
 }
 
-function isAffirmativeHostControlText(text: string): boolean {
-  return /^(?:yes|y|ok|okay|sure|proceed|do it|go ahead|continue|yes proceed)\b/i.test(text.trim());
-}
-
 function extractAbsolutePath(text: string): string | null {
   const windowsPathMatch = text.match(/([a-zA-Z]:\\[^\n\r]*)/);
   if (windowsPathMatch?.[1]) {
@@ -408,6 +404,22 @@ function extractRootAlias(text: string): string | null {
     return "music";
   }
   return null;
+}
+
+function extractBrowseDrivePath(text: string): string | null {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  const match =
+    /\b(?:browse|explore|open|show|list)\b(?:\s+(?:me|the))?(?:\s+(?:drive|disk))?\s+([a-z])(?::)?\b/i.exec(
+      normalized,
+    ) ||
+    /\b(?:browse|explore|open|show|list)\b(?:\s+(?:me|the))?\s+([a-z])(?::)?\s+(?:drive|disk)\b/i.exec(
+      normalized,
+    );
+  const letter = match?.[1]?.toLowerCase();
+  if (!letter || !/[a-z]/.test(letter)) {
+    return null;
+  }
+  return `/mnt/${letter}`;
 }
 
 function extractFindQuery(text: string): string | null {
@@ -692,6 +704,7 @@ function formatNoMatchInAllowedRootsReply(kind: "file" | "folder", query: string
 }
 
 type DirectReadIntent =
+  | { kind: "capabilities" }
   | { kind: "allowed_roots" }
   | { kind: "health" }
   | { kind: "discover" }
@@ -727,7 +740,7 @@ type DirectReadProposal = {
 
 type DirectRecentContext = {
   createdAt: string;
-  kind: "find_results" | "browse_entries" | "host_browse_entries";
+  kind: "find_results" | "browse_entries" | "host_browse_entries" | "allowed_roots" | "host_overview";
   basePath: string | null;
   entries: Array<{
     index: number;
@@ -1126,6 +1139,9 @@ async function resolveRootSpecToPath(
 }
 
 function describeDirectReadProposal(intent: DirectReadIntent): string {
+  if (intent.kind === "capabilities") {
+    return "Suggested host-control action: show the supported host-control capabilities and the actions that require confirmation.";
+  }
   if (intent.kind === "allowed_roots") {
     return "Suggested host-control action: use `host_control_list_allowed_roots` to read the current allowed roots.";
   }
@@ -1177,6 +1193,57 @@ function describeDirectReadProposal(intent: DirectReadIntent): string {
   return `Suggested host-control action: use \`host_control_find_ranked_files\` for query \`${intent.query}\`${intent.rootAlias ? ` scoped to \`${intent.rootAlias}\`` : ""}.`;
 }
 
+function isImmediateDirectReadIntent(intent: DirectReadIntent): boolean {
+  switch (intent.kind) {
+    case "capabilities":
+    case "allowed_roots":
+    case "health":
+    case "discover":
+    case "browse":
+    case "browse_named":
+    case "find":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function formatHostControlCapabilitiesReply(): string {
+  return [
+    "Host Control capabilities:",
+    "",
+    "Read-only, immediate:",
+    "- show drives",
+    "- show allowed roots",
+    "- health check",
+    "- browse a path or drive",
+    "- browse a named folder",
+    "- find files or folders",
+    "",
+    "Confirmation required:",
+    "- turn monitor on/off",
+    "- send file",
+    "- rename",
+    "- move",
+    "- quarantine or delete",
+    "- add allowed root",
+    "- remove allowed root",
+    "- self-heal / repair",
+    "",
+    "Example requests:",
+    "- show drives",
+    "- show allowed roots",
+    "- browse c",
+    "- browse no 2",
+    "- find project notes",
+    "- send no 1",
+    "- rename no 3 to archive.txt",
+    "- move no 2 to downloads",
+    "- quarantine no 4",
+    "- turn off monitor",
+  ].join("\n");
+}
+
 async function parseDirectReadIntent(
   text: string,
   recentContext: DirectRecentContext | null,
@@ -1220,6 +1287,15 @@ async function parseDirectReadIntent(
       findSingleContextEntry(recentContext, ["file", "unknown"]);
     if (selected) {
       return { kind: "send_file", path: selected.path, label: selected.name };
+    }
+  }
+  const removeSelectionMatch = /\b(?:remove|delete|drop|unallow)\s+(?:no|number|#)?\s*(\d+)\b/i.exec(normalized);
+  if (removeSelectionMatch?.[1] && recentContext?.kind === "allowed_roots") {
+    const selected = findContextEntryByIndex(recentContext, Number.parseInt(removeSelectionMatch[1], 10), [
+      "unknown",
+    ]);
+    if (selected) {
+      return { kind: "remove_allowed_root", root: selected.path };
     }
   }
   const renameMatch = /\brename\s+(?:no|number|#)?\s*(\d+)\s+to\s+(.+)$/i.exec(normalized);
@@ -1342,6 +1418,16 @@ async function parseDirectReadIntent(
   if (/\b(?:show|list|what are)\b/.test(lower) && /\ballowed roots?\b/.test(lower)) {
     return { kind: "allowed_roots" };
   }
+  if (
+    /\bhelp\b/.test(lower) ||
+    /\bwhat(?:'s|\s+is)?\s+(?:your\s+)?capabilities\b/.test(lower) ||
+    /\bwhat\s+can\s+you\s+do\b/.test(lower) ||
+    /\bwhat\s+you\s+can\s+do\b/.test(lower) ||
+    ((/\b(?:show|list|what are)\b/.test(lower) || /\bcapabilities\b/.test(lower)) &&
+      /\b(?:all\s+capabilities|capabilities|commands|actions|features)\b/.test(lower))
+  ) {
+    return { kind: "capabilities" };
+  }
   if (/\bhealth check\b/.test(lower) || /\bcheck .*health\b/.test(lower)) {
     return { kind: "health" };
   }
@@ -1351,6 +1437,10 @@ async function parseDirectReadIntent(
   const absolutePath = extractAbsolutePath(normalized);
   if (/\b(?:browse|explore|show|list|open)\b/.test(lower) && absolutePath) {
     return { kind: "browse", path: absolutePath, absolute: true };
+  }
+  const browseDrivePath = extractBrowseDrivePath(normalized);
+  if (browseDrivePath) {
+    return { kind: "browse", path: browseDrivePath, absolute: true };
   }
   const browseAlias = extractRootAlias(lower);
   if (/\b(?:browse|explore|show|list|open)\b/.test(lower) && browseAlias) {
@@ -1454,6 +1544,10 @@ async function executeDirectReadIntent(params: {
     sender_id: params.senderId ?? null,
   };
   const activeIntent = params.intent;
+  if (activeIntent.kind === "capabilities") {
+    await clearDirectRecentContext(params.sessionKey);
+    return { kind: "text", text: formatHostControlCapabilitiesReply() };
+  }
   if (activeIntent.kind === "allowed_roots") {
     const result = await callHostControlBridgeDirect(params.config, {
       request_id: `telegram-allowed-roots-${Date.now()}`,
@@ -1461,7 +1555,20 @@ async function executeDirectReadIntent(params: {
       arguments: {},
       actor,
     });
-    await clearDirectRecentContext(params.sessionKey);
+    const roots = Array.isArray(result?.result?.roots)
+      ? result.result.roots.filter((entry: unknown) => typeof entry === "string" && entry.trim())
+      : [];
+    await saveDirectRecentContext(params.sessionKey, {
+      createdAt: new Date().toISOString(),
+      kind: "allowed_roots",
+      basePath: null,
+      entries: roots.slice(0, 40).map((root, index) => ({
+        index: index + 1,
+        name: root,
+        path: root,
+        type: "unknown",
+      })),
+    });
     return { kind: "text", text: formatAllowedRootsReply(result.result ?? {}) };
   }
   if (activeIntent.kind === "health") {
@@ -1481,7 +1588,32 @@ async function executeDirectReadIntent(params: {
       arguments: {},
       actor,
     });
-    await clearDirectRecentContext(params.sessionKey);
+    const drives = Array.isArray(result?.result?.drives) ? result.result.drives : [];
+    await saveDirectRecentContext(params.sessionKey, {
+      createdAt: new Date().toISOString(),
+      kind: "host_overview",
+      basePath: null,
+      entries: drives.slice(0, 40).map((drive: Record<string, unknown>, index) => {
+        const windowsPath =
+          typeof drive.windowsPath === "string" && drive.windowsPath.trim()
+            ? drive.windowsPath.trim()
+            : null;
+        const rawPath =
+          typeof drive.path === "string" && drive.path.trim()
+            ? drive.path.trim()
+            : windowsPath ?? `Drive ${index + 1}`;
+        const label =
+          typeof drive.name === "string" && drive.name.trim()
+            ? drive.name.trim()
+            : windowsPath ?? rawPath;
+        return {
+          index: index + 1,
+          name: label,
+          path: rawPath,
+          type: "unknown",
+        };
+      }),
+    });
     return { kind: "text", text: formatHostOverviewReply(result.result ?? {}) };
   }
   if (activeIntent.kind === "monitor_power") {
@@ -1936,6 +2068,14 @@ type ForcedScreenshotParams = {
 
 type ForcedReadParams = ForcedScreenshotParams;
 
+function isBoundHostControlTopicSession(sessionKey: unknown): boolean {
+  const raw = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  if (!raw) {
+    return false;
+  }
+  return raw.startsWith("agent:host-control:telegram:group:") && raw.includes(":topic:");
+}
+
 export async function tryHandleForcedHostControlScreenshotTelegram(
   params: ForcedScreenshotParams,
 ): Promise<boolean> {
@@ -1955,7 +2095,7 @@ export async function tryHandleForcedHostControlScreenshotTelegram(
     reactionApi,
   } = params;
   const forcedScreenshotIntent =
-    !isGroup &&
+    (!isGroup || isBoundHostControlTopicSession(ctxPayload.SessionKey)) &&
     matchesForcedDesktopScreenshotIntent(
       resolveTelegramScreenshotIntentText({
         ctxPayload,
@@ -2106,7 +2246,7 @@ export async function tryHandleForcedHostControlReadTelegram(
     ackReactionPromise,
     reactionApi,
   } = params;
-  if (isGroup) {
+  if (isGroup && !isBoundHostControlTopicSession(ctxPayload.SessionKey)) {
     return false;
   }
   const intentText = normalizeTelegramIntentLine(
@@ -2132,21 +2272,60 @@ export async function tryHandleForcedHostControlReadTelegram(
     sender_id: ctxPayload.From ?? null,
   };
   const intent = await parseDirectReadIntent(intentText, recentContext, hostControlConfig, actor);
-  const pendingProposal = await loadDirectReadProposal(ctxPayload.SessionKey);
-  const isAffirmativeFollowup = isAffirmativeHostControlText(intentText);
-  const shouldHandleReadOnlyHostControl =
-    intent !== null || (Boolean(pendingProposal) && isAffirmativeFollowup);
+  const shouldHandleReadOnlyHostControl = intent !== null;
   if (!shouldHandleReadOnlyHostControl) {
     return false;
   }
-  if (isAffirmativeFollowup) {
-    if (!pendingProposal) {
+  const shouldRunImmediately = intent ? isImmediateDirectReadIntent(intent) : false;
+  if (shouldRunImmediately) {
+    try {
+      await sendTyping();
+    } catch {
+      // Ignore typing failures.
+    }
+    try {
+      const execution = await executeDirectReadIntent({
+        config: hostControlConfig,
+        intent,
+        sessionKey: typeof ctxPayload.SessionKey === "string" ? ctxPayload.SessionKey : null,
+        senderId: ctxPayload.From ?? null,
+      });
+      const replies =
+        execution.kind === "media"
+          ? [
+              execution.mediaPaths.length === 1
+                ? {
+                    mediaUrl: execution.mediaPaths[0],
+                    channelData: { telegram: { forceDocument: true } },
+                  }
+                : {
+                    mediaUrls: execution.mediaPaths,
+                    channelData: { telegram: { forceDocument: true } },
+                  },
+            ]
+          : [{ text: execution.text }];
+      const result = await deliverReplies({
+        ...deliveryBaseOptions,
+        replies,
+      });
+      if (!result.delivered) {
+        throw new Error("Telegram direct host-control reply was not accepted");
+      }
+      await clearDirectReadProposal(ctxPayload.SessionKey);
+      if (statusReactionController) {
+        void statusReactionController.setDone().catch((err) => {
+          logVerbose(`telegram: status reaction finalize failed: ${String(err)}`);
+        });
+      }
+      clearGroupHistory();
+      return true;
+    } catch (err) {
+      runtime.error?.(danger(`telegram forced host-control dispatch failed: ${String(err)}`));
       const result = await deliverReplies({
         ...deliveryBaseOptions,
         replies: [
           {
-            text:
-              "There is no pending host-control action to run. Ask for a specific search, browse, send, rename, allowed-roots, or health action first.",
+            text: "I couldn't complete that host-control action right now.",
             isError: true,
           } satisfies ReplyPayload,
         ],
@@ -2189,23 +2368,22 @@ export async function tryHandleForcedHostControlReadTelegram(
       originalSenderId:
         typeof ctxPayload.From === "string" ? ctxPayload.From : ctxPayload.From != null ? String(ctxPayload.From) : null,
     });
+    const proposalReply: ReplyPayload = {
+      text: `${describeDirectReadProposal(intent)} Use the button to continue, or refine your request.`,
+      channelData: {
+        telegram: {
+          buttons: [
+            [
+              { text: "Proceed", callback_data: `pcctl:proceed:${proposalId}`, style: "success" },
+              { text: "Cancel", callback_data: `pcctl:cancel:${proposalId}`, style: "danger" },
+            ],
+          ],
+        },
+      },
+    };
     const result = await deliverReplies({
       ...deliveryBaseOptions,
-      replies: [
-        {
-          text: `${describeDirectReadProposal(intent)} Use the button to continue, or refine your request.`,
-          channelData: {
-            telegram: {
-              buttons: [
-                [
-                  { text: "Proceed", callback_data: `pcctl:proceed:${proposalId}`, style: "success" },
-                  { text: "Cancel", callback_data: `pcctl:cancel:${proposalId}`, style: "danger" },
-                ],
-              ],
-            },
-          },
-        } satisfies ReplyPayload,
-      ],
+      replies: [proposalReply],
     });
     if (result.delivered && statusReactionController) {
       void statusReactionController.setDone().catch((err) => {

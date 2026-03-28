@@ -36,6 +36,7 @@ import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
 import { danger, logVerbose, warn } from "openclaw/plugin-sdk/runtime-env";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
+import { handleForcedHostControlReadCallback } from "./bot-message-dispatch.host-control.js";
 import {
   isSenderAllowed,
   normalizeDmAllowFromWithStore,
@@ -1240,6 +1241,47 @@ export const registerTelegramHandlers = ({
 
       const callbackConversationId =
         messageThreadId != null ? `${chatId}:topic:${messageThreadId}` : String(chatId);
+      const hostControlCallbackMatch = /^pcctl:(proceed|cancel)(?::([^:]+))?$/.exec(data);
+      if (hostControlCallbackMatch) {
+        const sessionState = resolveTelegramSessionState({
+          chatId,
+          isGroup,
+          isForum,
+          messageThreadId,
+          resolvedThreadId,
+          senderId,
+        });
+        const handled = await handleForcedHostControlReadCallback({
+          action: hostControlCallbackMatch[1] === "cancel" ? "cancel" : "proceed",
+          proposalId: hostControlCallbackMatch[2] ?? null,
+          cfg: telegramDeps.loadConfig(),
+          runtime,
+          sessionKey: sessionState.sessionKey,
+          senderId: senderId || undefined,
+          chatId,
+          messageId: callbackMessage.message_id,
+          reply: async (text: string) => {
+            await replyToCallbackChat(text);
+          },
+          replyMedia: async (mediaPaths: string[]) => {
+            for (const mediaPath of mediaPaths) {
+              await bot.api.sendDocument(callbackMessage.chat.id, mediaPath, {
+                message_thread_id: messageThreadId,
+              });
+            }
+          },
+          editMessage: async (text, buttons) => {
+            await editCallbackMessage(
+              text,
+              buttons ? { reply_markup: buildInlineKeyboard(buttons) } : undefined,
+            );
+          },
+          clearButtons: clearCallbackButtons,
+        });
+        if (handled) {
+          return;
+        }
+      }
       const pluginBindingApproval = parsePluginBindingApprovalCustomId(data);
       if (pluginBindingApproval) {
         const resolved = await resolvePluginConversationBindingApproval({
