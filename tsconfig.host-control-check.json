@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "noResolve": true,
+    "types": ["node"]
+  },
+  "files": [
+    "./src/typecheck.host-control.d.ts",
+    "./src/bot-message-dispatch.host-control.ts"
+  ]
+}

@@ -55,8 +55,9 @@ function toHostControlSharedPathMap(value: unknown): { from: string; to: string 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
-  const from = typeof value.from === "string" ? value.from.trim().replace(/\/+$/, "") : "";
-  const to = typeof value.to === "string" ? value.to.trim().replace(/\/+$/, "") : "";
+  const entry = value as { from?: unknown; to?: unknown };
+  const from = typeof entry.from === "string" ? entry.from.trim().replace(/\/+$/, "") : "";
+  const to = typeof entry.to === "string" ? entry.to.trim().replace(/\/+$/, "") : "";
   if (!from || !to) {
     return undefined;
   }
@@ -80,7 +81,7 @@ function resolveHostControlTelegramConfig(cfg: OpenClawConfig): HostControlTeleg
   const pluginEntry = cfg.plugins?.entries?.["host-control"];
   const pluginCfg =
     pluginEntry?.config && typeof pluginEntry.config === "object" && !Array.isArray(pluginEntry.config)
-      ? pluginEntry.config
+      ? (pluginEntry.config as Record<string, unknown>)
       : {};
   const bridgeUrl = typeof pluginCfg.bridgeUrl === "string" ? pluginCfg.bridgeUrl.trim() : "";
   if (!bridgeUrl) {
@@ -281,6 +282,14 @@ function looksLikeReadOnlyHostControlText(text: string): boolean {
 
 function looksLikeNonHostControlEscape(text: string): boolean {
   return NON_HOST_CONTROL_ESCAPE_HINTS.some((pattern) => pattern.test(text));
+}
+
+function mentionsSelfHealHostControlTarget(text: string): boolean {
+  return /\b(?:host-control|bridge|gateway|connection)\b/i.test(text);
+}
+
+function hasSelfHealVerb(text: string): boolean {
+  return /\b(?:repair|fix|self-heal|self heal|heal|restart)\b/i.test(text);
 }
 
 function extractAbsolutePath(text: string): string | null {
@@ -494,7 +503,8 @@ function formatHostOverviewReply(result: Record<string, unknown>): string {
         })
         .join("\n")
     : "- none";
-  const home = typeof result.home?.windowsPath === "string" ? result.home.windowsPath : "";
+  const homeEntry = result.home && typeof result.home === "object" ? (result.home as Record<string, unknown>) : null;
+  const home = typeof homeEntry?.windowsPath === "string" ? homeEntry.windowsPath : "";
   const entryLines = homeEntries.length
     ? homeEntries.slice(0, 20).map((entry) => `- ${entry?.name}${entry?.type === "directory" ? "/" : ""}`).join("\n")
     : "- none";
@@ -707,6 +717,7 @@ type DirectReadIntent =
   | { kind: "capabilities" }
   | { kind: "allowed_roots" }
   | { kind: "health" }
+  | { kind: "host_status" }
   | { kind: "discover" }
   | { kind: "monitor_power"; action: "off" | "on" }
   | { kind: "browse"; path: string; absolute: boolean }
@@ -727,7 +738,16 @@ type DirectReadIntent =
   | { kind: "mkdir_path"; path: string; label: string }
   | { kind: "add_allowed_root"; root: string }
   | { kind: "remove_allowed_root"; root: string }
-  | { kind: "self_heal"; action: "bridge_restart" | "bridge_repair_network" | "gateway_restart" | "recheck_health" | "full_host_control_repair" };
+  | {
+      kind: "self_heal";
+      action:
+        | "bridge_restart"
+        | "bridge_repair_network"
+        | "gateway_restart"
+        | "recheck_health"
+        | "full_host_control_repair"
+        | "diagnostics";
+    };
 
 type DirectReadProposal = {
   proposalId: string;
@@ -1148,6 +1168,9 @@ function describeDirectReadProposal(intent: DirectReadIntent): string {
   if (intent.kind === "health") {
     return "Suggested host-control action: use `host_control_health_check` to read the current system and bridge health.";
   }
+  if (intent.kind === "host_status") {
+    return "Suggested host-control action: read host-control diagnostics, including bridge, recovery, tmux, pid, and auth status.";
+  }
   if (intent.kind === "discover") {
     return "Suggested host-control action: use `host_control_discover_host_locations` to read available drives and top-level profile folders.";
   }
@@ -1198,6 +1221,7 @@ function isImmediateDirectReadIntent(intent: DirectReadIntent): boolean {
     case "capabilities":
     case "allowed_roots":
     case "health":
+    case "host_status":
     case "discover":
     case "browse":
     case "browse_named":
@@ -1216,6 +1240,7 @@ function formatHostControlCapabilitiesReply(): string {
     "- show drives",
     "- show allowed roots",
     "- health check",
+    "- host status / self-heal status",
     "- browse a path or drive",
     "- browse a named folder",
     "- find files or folders",
@@ -1402,7 +1427,11 @@ async function parseDirectReadIntent(
       return { kind: "remove_allowed_root", root };
     }
   }
-  if (/\b(?:repair|fix|self-heal|heal|restart)\b/i.test(normalized) && /\b(?:host-control|bridge|gateway|connection)\b/i.test(normalized)) {
+  const inBoundHostControlTopic = isBoundHostControlTopicSession(actor.session_key);
+  if (hasSelfHealVerb(normalized) && (inBoundHostControlTopic || mentionsSelfHealHostControlTarget(normalized))) {
+    if (/\b(?:status|diagnostic|diagnostics)\b/i.test(normalized)) {
+      return { kind: "host_status" };
+    }
     const action =
       /\bgateway\b/i.test(normalized)
         ? "gateway_restart"
@@ -1412,8 +1441,16 @@ async function parseDirectReadIntent(
             ? "recheck_health"
             : /\brestart\b/i.test(normalized) && /\bbridge\b/i.test(normalized)
               ? "bridge_restart"
-              : "full_host_control_repair";
+            : "full_host_control_repair";
     return { kind: "self_heal", action };
+  }
+  if (
+    inBoundHostControlTopic &&
+    (/\bhost(?:\s|-)?status\b/i.test(normalized) ||
+      /\b(?:self(?:\s|-)?heal|repair)\s+status\b/i.test(normalized) ||
+      /\bdiagnostics?\b/i.test(normalized))
+  ) {
+    return { kind: "host_status" };
   }
   if (/\b(?:show|list|what are)\b/.test(lower) && /\ballowed roots?\b/.test(lower)) {
     return { kind: "allowed_roots" };
@@ -1524,12 +1561,105 @@ async function callHostControlRecoveryDirect(
     const json = await response.json().catch(() => ({}));
     if (!response.ok || json?.ok !== true) {
       const message = json?.error?.message || `Recovery request failed with status ${response.status}`;
-      throw new Error(message);
+      const error = new Error(message) as Error & {
+        status?: number;
+        code?: string;
+        recoveryResult?: unknown;
+      };
+      error.status = response.status;
+      error.code = typeof json?.error?.code === "string" ? json.error.code : undefined;
+      error.recoveryResult = json?.result;
+      throw error;
     }
     return json;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function formatRecoveryStepSummary(step: Record<string, unknown>): string {
+  const label = typeof step.step === "string" ? step.step : "step";
+  if (step.ok === true) {
+    return `- ${label}: ok`;
+  }
+  const error = typeof step.error === "string" && step.error.trim() ? ` (${step.error.trim()})` : "";
+  return `- ${label}: failed${error}`;
+}
+
+function formatRecoveryDiagnosticsText(result: Record<string, unknown>, heading: string): string {
+  const summary = result?.summary && typeof result.summary === "object" ? (result.summary as Record<string, unknown>) : {};
+  const diagnostics =
+    result?.diagnostics && typeof result.diagnostics === "object" ? (result.diagnostics as Record<string, unknown>) : {};
+  const bridge =
+    diagnostics.bridge && typeof diagnostics.bridge === "object" ? (diagnostics.bridge as Record<string, unknown>) : {};
+  const recovery =
+    diagnostics.recovery && typeof diagnostics.recovery === "object" ? (diagnostics.recovery as Record<string, unknown>) : {};
+  const sessions =
+    diagnostics.sessions && typeof diagnostics.sessions === "object" ? (diagnostics.sessions as Record<string, unknown>) : {};
+  const pids = diagnostics.pids && typeof diagnostics.pids === "object" ? (diagnostics.pids as Record<string, unknown>) : {};
+  const auth = diagnostics.auth && typeof diagnostics.auth === "object" ? (diagnostics.auth as Record<string, unknown>) : {};
+  const bridgeSession =
+    sessions.bridge && typeof sessions.bridge === "object" ? (sessions.bridge as Record<string, unknown>) : {};
+  const recoverySession =
+    sessions.recovery && typeof sessions.recovery === "object" ? (sessions.recovery as Record<string, unknown>) : {};
+  const bridgePid = pids.bridge && typeof pids.bridge === "object" ? (pids.bridge as Record<string, unknown>) : {};
+  const recoveryPid =
+    pids.recovery && typeof pids.recovery === "object" ? (pids.recovery as Record<string, unknown>) : {};
+  const issueLines = Array.isArray(summary.issues)
+    ? summary.issues
+        .map((issue) =>
+          typeof issue?.message === "string" && issue.message.trim()
+            ? `- ${issue.message.trim()}`
+            : typeof issue?.code === "string" && issue.code.trim()
+              ? `- ${issue.code.trim()}`
+              : null,
+        )
+        .filter((value): value is string => Boolean(value))
+    : [];
+  const bridgeState =
+    bridge.ok === true
+      ? `ok (${typeof bridge.status === "number" ? bridge.status : "healthy"})`
+      : `down${typeof bridge.error === "string" && bridge.error.trim() ? `: ${bridge.error.trim()}` : ""}`;
+  return [
+    heading,
+    `Overall: ${summary.healthy === true ? "healthy" : "degraded"}`,
+    `Bridge: ${bridgeState}`,
+    `Recovery: ${recovery.ok === true ? "ok" : "degraded"} on \`${String(recovery.host ?? "0.0.0.0")}:${String(recovery.port ?? "")}\``,
+    `Sessions: bridge=${bridgeSession.running === true ? "up" : "down"}, recovery=${recoverySession.running === true ? "up" : "down"}`,
+    `PIDs: bridge=${bridgePid.running === true ? String(bridgePid.pid ?? "up") : "down"}, recovery=${recoveryPid.running === true ? String(recoveryPid.pid ?? "up") : "down"}`,
+    `Auth: ${auth.tokenLoaded === true ? `loaded via \`${String(auth.tokenSource ?? auth.tokenEnv ?? "unknown")}\`` : "missing"}`,
+  ]
+    .concat(issueLines.length > 0 ? ["Issues:", ...issueLines] : [])
+    .join("\n");
+}
+
+function formatRecoveryActionReply(result: Record<string, unknown>): string {
+  const action = typeof result.action === "string" ? result.action : "self_heal";
+  if (action === "diagnostics") {
+    return formatRecoveryDiagnosticsText(result, "Host-control status:");
+  }
+  const summary = formatRecoveryDiagnosticsText(
+    result,
+    `Self-heal \`${action}\` ${result.ok === false ? "finished with problems." : "completed."}`,
+  );
+  const steps = Array.isArray(result.steps)
+    ? result.steps
+        .map((entry) => (entry && typeof entry === "object" ? formatRecoveryStepSummary(entry as Record<string, unknown>) : null))
+        .filter((value): value is string => Boolean(value))
+    : [];
+  return steps.length > 0 ? [summary, "Steps:", ...steps].join("\n") : summary;
+}
+
+function formatRecoveryActionError(action: string, error: unknown): string {
+  const structured =
+    error && typeof error === "object" && "recoveryResult" in error
+      ? ((error as { recoveryResult?: unknown }).recoveryResult as Record<string, unknown> | undefined)
+      : undefined;
+  if (structured) {
+    return formatRecoveryActionReply(structured);
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return `Self-heal \`${action}\` failed: ${message}`;
 }
 
 async function executeDirectReadIntent(params: {
@@ -1580,6 +1710,25 @@ async function executeDirectReadIntent(params: {
     });
     await clearDirectRecentContext(params.sessionKey);
     return { kind: "text", text: formatHealthReply(result.result ?? {}) };
+  }
+  if (activeIntent.kind === "host_status") {
+    const result = await callHostControlRecoveryDirect(params.config, {
+      request_id: `telegram-host-status-${Date.now()}`,
+      action: "diagnostics",
+      arguments: {},
+      actor,
+    }).catch((error) => ({
+      result: { action: "diagnostics" },
+      __error: error,
+    }));
+    await clearDirectRecentContext(params.sessionKey);
+    if (result && typeof result === "object" && "__error" in result) {
+      return {
+        kind: "text",
+        text: formatRecoveryActionError("diagnostics", (result as { __error: unknown }).__error),
+      };
+    }
+    return { kind: "text", text: formatRecoveryActionReply((result?.result ?? {}) as Record<string, unknown>) };
   }
   if (activeIntent.kind === "discover") {
     const result = await callHostControlBridgeDirect(params.config, {
@@ -1811,7 +1960,7 @@ async function executeDirectReadIntent(params: {
       const entries = Array.isArray(searchResult?.result?.results) ? searchResult.result.results : [];
       combinedResults.push(...entries);
     }
-    const ranked = combinedResults
+    const ranked: Array<Record<string, unknown> & { score: number }> = combinedResults
       .filter((entry) => typeof entry?.path === "string" && entry.path.trim())
       .map((entry) => ({ ...entry, score: scoreSearchResult(activeIntent.query, entry) }))
       .sort((left, right) => Number(right.score || 0) - Number(left.score || 0));
@@ -2026,16 +2175,25 @@ async function executeDirectReadIntent(params: {
     if (!params.config.allowAdminOperations) {
       throw new Error("host-control admin operations are not enabled");
     }
-    await callHostControlRecoveryDirect(params.config, {
+    const result = await callHostControlRecoveryDirect(params.config, {
       request_id: `telegram-self-heal-${Date.now()}`,
       action: activeIntent.action,
       arguments: {},
       actor,
-    });
+    }).catch((error) => ({
+      result: { action: activeIntent.action },
+      __error: error,
+    }));
     await clearDirectRecentContext(params.sessionKey);
+    if (result && typeof result === "object" && "__error" in result) {
+      return {
+        kind: "text",
+        text: formatRecoveryActionError(activeIntent.action, (result as { __error: unknown }).__error),
+      };
+    }
     return {
       kind: "text",
-      text: `Requested self-heal action \`${activeIntent.action}\`.`,
+      text: formatRecoveryActionReply((result?.result ?? {}) as Record<string, unknown>),
     };
   }
   return { kind: "text", text: "" };
@@ -2073,7 +2231,8 @@ function isBoundHostControlTopicSession(sessionKey: unknown): boolean {
   if (!raw) {
     return false;
   }
-  return raw.startsWith("agent:host-control:telegram:group:") && raw.includes(":topic:");
+  const agentId = /^agent:([^:]+):/.exec(raw)?.[1];
+  return agentId === "host-control" && raw.includes(":topic:");
 }
 
 export async function tryHandleForcedHostControlScreenshotTelegram(
@@ -2388,89 +2547,6 @@ export async function tryHandleForcedHostControlReadTelegram(
     if (result.delivered && statusReactionController) {
       void statusReactionController.setDone().catch((err) => {
         logVerbose(`telegram: status reaction finalize failed: ${String(err)}`);
-      });
-    }
-    clearGroupHistory();
-    return true;
-  }
-  try {
-    await sendTyping();
-  } catch {
-    // Ignore typing failures.
-  }
-  try {
-    const activeIntent = pendingProposal?.intent;
-    if (!activeIntent) {
-      throw new Error("Missing pending direct read proposal");
-    }
-    const execution = await executeDirectReadIntent({
-      config: hostControlConfig,
-      intent: activeIntent,
-      sessionKey: typeof ctxPayload.SessionKey === "string" ? ctxPayload.SessionKey : null,
-      senderId: ctxPayload.From ?? null,
-    });
-    const replies =
-      execution.kind === "media"
-        ? [
-            execution.mediaPaths.length === 1
-              ? {
-                  mediaUrl: execution.mediaPaths[0],
-                  channelData: { telegram: { forceDocument: true } },
-                }
-              : {
-                  mediaUrls: execution.mediaPaths,
-                  channelData: { telegram: { forceDocument: true } },
-                },
-          ]
-        : [{ text: execution.text }];
-    const result = await deliverReplies({
-      ...deliveryBaseOptions,
-      replies,
-    });
-    if (!result.delivered) {
-      throw new Error("Telegram direct host-control reply was not accepted");
-    }
-    await clearDirectReadProposal(ctxPayload.SessionKey);
-    if (statusReactionController) {
-      void statusReactionController.setDone().catch((err) => {
-        logVerbose(`telegram: status reaction finalize failed: ${String(err)}`);
-      });
-    } else {
-      removeAckReactionAfterReply({
-        removeAfterReply: removeAckAfterReply,
-        ackReactionPromise,
-        ackReactionValue: ackReactionPromise ? "ack" : null,
-        remove: () => reactionApi?.(chatId, msg.message_id ?? 0, []) ?? Promise.resolve(),
-        onError: (err) => {
-          if (!msg.message_id) {
-            return;
-          }
-          logAckFailure({
-            log: logVerbose,
-            channel: "telegram",
-            target: `${chatId}/${msg.message_id}`,
-            error: err,
-          });
-        },
-      });
-    }
-    clearGroupHistory();
-    return true;
-  } catch (err) {
-    runtime.error?.(danger(`telegram forced host-control read dispatch failed: ${String(err)}`));
-    await clearDirectReadProposal(ctxPayload.SessionKey);
-    const result = await deliverReplies({
-      ...deliveryBaseOptions,
-      replies: [
-        {
-          text: "I couldn't complete that host-control request directly right now.",
-          isError: true,
-        } satisfies ReplyPayload,
-      ],
-    });
-    if (result.delivered && statusReactionController) {
-      void statusReactionController.setError().catch((reactionErr) => {
-        logVerbose(`telegram: status reaction error finalize failed: ${String(reactionErr)}`);
       });
     }
     clearGroupHistory();
