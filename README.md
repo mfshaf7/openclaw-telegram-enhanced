@@ -65,6 +65,10 @@ Operators should treat:
 - this repository as the canonical source for Telegram code and repo-specific docs
 - the deployment workspace copy as the bundled build input that must be kept aligned intentionally
 
+Operational rule:
+
+- if the live bundled Telegram runtime is patched directly inside a gateway container, the same change must be backported here first and then mirrored into the deployment workspace copy before the deployment is considered reproducible
+
 ## Main Capabilities
 
 - bundled Telegram channel replacement
