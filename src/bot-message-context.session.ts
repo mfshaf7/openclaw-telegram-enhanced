@@ -28,7 +28,6 @@ import type {
   TelegramMessageContextOptions,
 } from "./bot-message-context.types.js";
 import {
-  appendHostControlTopicSystemPrompt,
   buildGroupLabel,
   buildSenderLabel,
   buildSenderName,
@@ -38,7 +37,10 @@ import {
   type TelegramThreadSpec,
 } from "./bot/helpers.js";
 import type { TelegramContext } from "./bot/types.js";
-import { resolveTelegramGroupPromptSettings } from "./group-config-helpers.js";
+import {
+  appendHostControlTopicSystemPrompt,
+  resolveTelegramGroupPromptSettings,
+} from "./group-config-helpers.js";
 
 export async function buildTelegramInboundContextPayload(params: {
   cfg: OpenClawConfig;
