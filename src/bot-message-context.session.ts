@@ -28,6 +28,7 @@ import type {
   TelegramMessageContextOptions,
 } from "./bot-message-context.types.js";
 import {
+  appendHostControlTopicSystemPrompt,
   buildGroupLabel,
   buildSenderLabel,
   buildSenderName,
@@ -174,6 +175,12 @@ export async function buildTelegramInboundContextPayload(params: {
     groupConfig,
     topicConfig,
   });
+  const effectiveGroupSystemPrompt = appendHostControlTopicSystemPrompt({
+    groupSystemPrompt,
+    isGroup,
+    resolvedThreadId,
+    agentId: route.agentId,
+  });
   const commandBody = normalizeCommandBody(rawBody, {
     botUsername: primaryCtx.me?.username?.toLowerCase(),
   });
@@ -200,7 +207,8 @@ export async function buildTelegramInboundContextPayload(params: {
     ChatType: isGroup ? "group" : "direct",
     ConversationLabel: conversationLabel,
     GroupSubject: isGroup ? (msg.chat.title ?? undefined) : undefined,
-    GroupSystemPrompt: isGroup || (!isGroup && groupConfig) ? groupSystemPrompt : undefined,
+    GroupSystemPrompt:
+      isGroup || (!isGroup && groupConfig) ? effectiveGroupSystemPrompt || undefined : undefined,
     SenderName: senderName,
     SenderId: senderId || undefined,
     SenderUsername: senderUsername || undefined,

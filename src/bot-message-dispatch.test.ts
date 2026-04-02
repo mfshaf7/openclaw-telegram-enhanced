@@ -382,8 +382,113 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
   });
 
-  it("fails closed when the evidence agent does not return a valid evidence bundle", async () => {
-    expect(true).toBe(true);
+  it("orchestrates current-setup security questions through the evidence topic without explicit evidence wording", async () => {
+    deliverReplies.mockResolvedValue({ delivered: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          result: {
+            components: {
+              bridge: { ok: true, mode: "operator_controlled" },
+              integrations: {
+                gateway: { ok: true, health: "healthy" },
+                wsl: { detected: true, ok: true },
+              },
+              storage: { allowedRoots: [{ path: "/mnt/c" }, { path: "/mnt/e" }] },
+            },
+          },
+        }),
+      })),
+    );
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ ctx, dispatcherOptions }) => {
+        const body = String((ctx as { Body?: string }).Body ?? "");
+        if (body.includes("Evidence bundle:")) {
+          await dispatcherOptions.deliver(
+            { text: "Judgment: acceptable interim design, but still layered mitigations." },
+            { kind: "final" },
+          );
+          return { queuedFinal: true };
+        }
+        throw new Error(`unexpected dispatch body: ${body}`);
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext({
+        isGroup: true,
+        chatId: -1002519919856,
+        msg: {
+          chat: { id: -1002519919856, type: "supergroup" },
+          message_id: 456,
+          message_thread_id: 2,
+        } as unknown as TelegramMessageContext["msg"],
+        threadSpec: { id: 2, scope: "group" } as unknown as TelegramMessageContext["threadSpec"],
+        route: {
+          agentId: "security-architecture",
+          accountId: "default",
+        } as unknown as TelegramMessageContext["route"],
+        ctxPayload: {
+          SessionKey: "agent:security-architecture:telegram:group:-1002519919856:topic:2",
+          Body: "Lets check again on the current architecture setup. Is the security good enough?",
+          RawBody: "Lets check again on the current architecture setup. Is the security good enough?",
+        } as unknown as TelegramMessageContext["ctxPayload"],
+      }),
+      cfg: {
+        channels: {
+          telegram: {
+            groups: {
+              "-1002519919856": {
+                topics: {
+                  "2": { agentId: "security-architecture", enabled: true },
+                  "11": { agentId: "security-evidence", enabled: true },
+                },
+              },
+            },
+          },
+        },
+        plugins: {
+          entries: {
+            "host-control": {
+              config: {
+                bridgeUrl: "http://bridge.local:48721",
+              },
+            },
+          },
+        },
+        agents: {
+          list: [
+            { id: "security-architecture", tools: { deny: ["memory_search"] } },
+            {
+              id: "security-evidence",
+              tools: { allow: ["host_control_health_check"], deny: ["memory_search", "exec"] },
+            },
+          ],
+        },
+        bindings: [
+          {
+            agentId: "security-evidence",
+            match: {
+              channel: "telegram",
+              peer: { kind: "group", id: "-1002519919856:topic:11" },
+            },
+          },
+        ],
+      },
+      streamMode: "off",
+    });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const finalCall = dispatchReplyWithBufferedBlockDispatcher.mock.calls[0]?.[0] as {
+      ctx?: { Body?: string };
+    };
+    expect(finalCall.ctx?.Body).toContain("Evidence bundle:");
+    expect(finalCall.ctx?.Body).toContain("Do not invent controls");
+    expect(finalCall.ctx?.Body).toContain("bridge URL `http://bridge.local:48721` and auth token env");
+    expect(deliverReplies).toHaveBeenCalledTimes(2);
   });
 
   function createReasoningStreamContext(): TelegramMessageContext {

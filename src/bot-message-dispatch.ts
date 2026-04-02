@@ -156,6 +156,10 @@ function extractTelegramBodyText(ctxPayload: {
   return ctxPayload.RawBody ?? ctxPayload.BodyForAgent ?? ctxPayload.Body ?? "";
 }
 
+function pushFact(facts: string[], key: string, value: string): void {
+  facts.push(`${key}: ${value}`);
+}
+
 function resolveSecurityBridgeConfig(cfg: OpenClawConfig): SecurityBridgeConfig | null {
   const pluginEntry = cfg.plugins?.entries?.["host-control"];
   const pluginCfg =
@@ -217,21 +221,29 @@ async function callSecurityBridgeHealth(
 
 function summarizeTelegramBindings(cfg: OpenClawConfig, chatId: string): string[] {
   const summaries: string[] = [];
-  for (const binding of cfg.bindings ?? []) {
-    if (binding?.match?.channel !== "telegram") {
-      continue;
-    }
-    const peer = binding?.match?.peer;
-    if (!peer) {
-      if (binding.agentId === "telegram-fast") {
-        summaries.push("Telegram default account fallback is routed to `telegram-fast`.");
+  const telegramCfg = cfg.channels?.telegram;
+  const groupCfg =
+    telegramCfg && typeof telegramCfg === "object" && !Array.isArray(telegramCfg)
+      ? (telegramCfg as { groups?: Record<string, unknown> }).groups
+      : undefined;
+  const targetGroup =
+    groupCfg && typeof groupCfg === "object" && !Array.isArray(groupCfg)
+      ? groupCfg[chatId]
+      : undefined;
+  if (targetGroup && typeof targetGroup === "object" && !Array.isArray(targetGroup)) {
+    const topics = (targetGroup as { topics?: Record<string, unknown> }).topics;
+    if (topics && typeof topics === "object" && !Array.isArray(topics)) {
+      for (const [topicId, topicValue] of Object.entries(topics)) {
+        if (!topicValue || typeof topicValue !== "object" || Array.isArray(topicValue)) {
+          continue;
+        }
+        const topic = topicValue as { agentId?: unknown; enabled?: unknown };
+        if (topic.enabled === false || typeof topic.agentId !== "string" || !topic.agentId) {
+          continue;
+        }
+        pushFact(summaries, `telegram.topic.${topicId}.agent`, topic.agentId);
       }
-      continue;
     }
-    if (peer.kind !== "group" || typeof peer.id !== "string" || !peer.id.startsWith(chatId)) {
-      continue;
-    }
-    summaries.push(`Telegram binding routes \`${peer.id}\` to \`${binding.agentId}\`.`);
   }
   return summaries;
 }
@@ -246,15 +258,16 @@ function summarizeAgentExposure(cfg: OpenClawConfig): string[] {
     if (agent.id === SECURITY_EVIDENCE_AGENT_ID) {
       const allow = Array.isArray(agent.tools?.allow) ? agent.tools.allow.join(", ") : "";
       const deny = Array.isArray(agent.tools?.deny) ? agent.tools.deny.join(", ") : "";
-      facts.push(
-        `\`${SECURITY_EVIDENCE_AGENT_ID}\` uses a constrained tool surface` +
-          `${allow ? ` (allow: ${allow})` : ""}` +
-          `${deny ? ` and deny: ${deny}` : ""}.`,
-      );
+      if (allow) {
+        pushFact(facts, `${SECURITY_EVIDENCE_AGENT_ID}.tools.allow`, allow);
+      }
+      if (deny) {
+        pushFact(facts, `${SECURITY_EVIDENCE_AGENT_ID}.tools.deny`, deny);
+      }
     }
     if (agent.id === SECURITY_ARCHITECTURE_AGENT_ID) {
       const deny = Array.isArray(agent.tools?.deny) ? agent.tools.deny.join(", ") : "none";
-      facts.push(`\`${SECURITY_ARCHITECTURE_AGENT_ID}\` currently has a minimal denylist (${deny}).`);
+      pushFact(facts, `${SECURITY_ARCHITECTURE_AGENT_ID}.tools.deny`, deny);
     }
   }
   return facts;
@@ -275,7 +288,8 @@ async function buildDeterministicSecurityEvidenceBundle(params: {
 
   const bridgeConfig = resolveSecurityBridgeConfig(params.cfg);
   if (bridgeConfig) {
-    verifiedFacts.push("The `host-control` plugin is configured to use an authenticated bridge URL.");
+    pushFact(verifiedFacts, "host-control.bridge.url", bridgeConfig.bridgeUrl);
+    pushFact(verifiedFacts, "host-control.bridge.authTokenEnv", bridgeConfig.authTokenEnv);
     const health = await callSecurityBridgeHealth(bridgeConfig).catch(() => null);
     const components =
       health && typeof health.components === "object" && !Array.isArray(health.components)
@@ -287,11 +301,10 @@ async function buildDeterministicSecurityEvidenceBundle(params: {
     if (bridge && typeof bridge === "object" && !Array.isArray(bridge)) {
       const bridgeOk = (bridge as Record<string, unknown>).ok === true;
       const mode = (bridge as Record<string, unknown>).mode;
-      verifiedFacts.push(
-        `Bridge health reports OpenClaw host bridge ${bridgeOk ? "healthy" : "not healthy"}${
-          typeof mode === "string" ? ` in \`${mode}\` mode` : ""
-        }.`,
-      );
+      pushFact(verifiedFacts, "bridge.health.ok", String(bridgeOk));
+      if (typeof mode === "string" && mode) {
+        pushFact(verifiedFacts, "bridge.mode", mode);
+      }
     } else {
       unknowns.push("Bridge health facts could not be read from the current bridge response.");
     }
@@ -301,34 +314,34 @@ async function buildDeterministicSecurityEvidenceBundle(params: {
       if (gateway && typeof gateway === "object" && !Array.isArray(gateway)) {
         const gatewayOk = (gateway as Record<string, unknown>).ok === true;
         const gatewayHealth = (gateway as Record<string, unknown>).health;
-        verifiedFacts.push(
-          `Gateway integration reports ${gatewayOk ? "ok" : "not ok"}${
-            typeof gatewayHealth === "string" ? ` with health \`${gatewayHealth}\`` : ""
-          }.`,
-        );
+        pushFact(verifiedFacts, "gateway.health.ok", String(gatewayOk));
+        if (typeof gatewayHealth === "string" && gatewayHealth) {
+          pushFact(verifiedFacts, "gateway.health.status", gatewayHealth);
+        }
       }
       if (wsl && typeof wsl === "object" && !Array.isArray(wsl)) {
         const detected = (wsl as Record<string, unknown>).detected === true;
         const ok = (wsl as Record<string, unknown>).ok === true;
-        verifiedFacts.push(`WSL integration is ${detected ? "detected" : "not detected"} and reports ${ok ? "ok" : "not ok"}.`);
+        pushFact(verifiedFacts, "wsl.detected", String(detected));
+        pushFact(verifiedFacts, "wsl.ok", String(ok));
       }
     }
     if (storage && typeof storage === "object" && !Array.isArray(storage)) {
       const allowedRoots = (storage as Record<string, unknown>).allowedRoots;
       if (Array.isArray(allowedRoots)) {
-        verifiedFacts.push(`Bridge storage policy currently exposes ${allowedRoots.length} allowed roots.`);
+        pushFact(verifiedFacts, "storage.allowedRoots.count", String(allowedRoots.length));
       }
     }
   } else {
     unknowns.push("The current runtime did not expose a usable OpenClaw host bridge configuration for evidence collection.");
   }
 
-  inferences.push("Topic-level routing separates architecture discussion from evidence collection.");
-  inferences.push("Host-facing checks are mediated through the OpenClaw host bridge instead of direct elevated execution in Telegram.");
-  unknowns.push("The current security-architecture agent is not yet tightly tool-constrained, so judgment-path hardening is still incomplete.");
-  unknowns.push("This evidence bundle does not prove host firewall, MFA, or external network hardening.");
-  recommendedNextCheck.push("Constrain the security-architecture agent tool surface as strictly as the evidence path.");
-  recommendedNextCheck.push("Add a deterministic runtime verifier for telegram topic bindings and exposed agent tools.");
+  pushFact(inferences, "routing.separation", "architecture and evidence are separated by topic");
+  pushFact(inferences, "host-ops.path", "telegram host-facing actions are mediated by host-control bridge");
+  pushFact(unknowns, "unknown", "remaining allowed tool surface on security-architecture is not yet validated as the right long-term boundary");
+  pushFact(unknowns, "unknown", "host firewall, MFA, and external network hardening are not proven by this evidence bundle");
+  pushFact(recommendedNextCheck, "next", "review whether remaining allowed tools on security-architecture are justified for a discussion-first agent");
+  pushFact(recommendedNextCheck, "next", "add a deterministic runtime verifier for telegram topic bindings and exposed agent tools");
 
   return {
     type: "EVIDENCE_BUNDLE",
@@ -349,18 +362,59 @@ function shouldRunSecurityEvidenceOrchestration(params: {
     return false;
   }
   const text = params.text.toLowerCase();
-  return (
+  const explicitEvidenceRequest =
     /\buse evidence\b/.test(text) ||
     /\bwith evidence\b/.test(text) ||
     /\bevidence if needed\b/.test(text) ||
-    /\bverify\b/.test(text)
-  );
+    /\bverify\b/.test(text);
+  if (explicitEvidenceRequest) {
+    return true;
+  }
+  const looksLikeCurrentSetupQuestion =
+    /\b(current|this)\b/.test(text) &&
+    /\b(setup|deployment|architecture|system)\b/.test(text) &&
+    /\b(security|secure|sound|risk|trust boundary|good enough|ok)\b/.test(text);
+  const looksLikeArchitectureJudgmentQuestion =
+    /\b(architecture|trust boundary|design|deployment)\b/.test(text) &&
+    /\b(sound|secure|security|risky|wrong|acceptable|good enough|ok)\b/.test(text);
+  return looksLikeCurrentSetupQuestion || looksLikeArchitectureJudgmentQuestion;
 }
 
 function resolveSecurityEvidenceTopicBinding(params: {
   cfg: OpenClawConfig;
   chatId: string;
 }): { sessionKey: string; threadSpec: TelegramThreadSpec; accountId?: string } | null {
+  const telegramCfg = params.cfg.channels?.telegram;
+  const groupCfg =
+    telegramCfg && typeof telegramCfg === "object" && !Array.isArray(telegramCfg)
+      ? (telegramCfg as { groups?: Record<string, unknown> }).groups
+      : undefined;
+  const targetGroup =
+    groupCfg && typeof groupCfg === "object" && !Array.isArray(groupCfg)
+      ? groupCfg[params.chatId]
+      : undefined;
+  if (targetGroup && typeof targetGroup === "object" && !Array.isArray(targetGroup)) {
+    const topics = (targetGroup as { topics?: Record<string, unknown> }).topics;
+    if (topics && typeof topics === "object" && !Array.isArray(topics)) {
+      for (const [topicId, topicValue] of Object.entries(topics)) {
+        if (!topicValue || typeof topicValue !== "object" || Array.isArray(topicValue)) {
+          continue;
+        }
+        const topic = topicValue as { agentId?: unknown; enabled?: unknown };
+        if (topic.enabled === false || topic.agentId !== SECURITY_EVIDENCE_AGENT_ID) {
+          continue;
+        }
+        const parsedTopicId = Number.parseInt(topicId, 10);
+        if (!Number.isFinite(parsedTopicId)) {
+          continue;
+        }
+        return {
+          sessionKey: `agent:${SECURITY_EVIDENCE_AGENT_ID}:telegram:group:${params.chatId}:topic:${parsedTopicId}`,
+          threadSpec: { id: parsedTopicId, scope: "group" },
+        };
+      }
+    }
+  }
   for (const binding of params.cfg.bindings ?? []) {
     if (binding?.agentId !== SECURITY_EVIDENCE_AGENT_ID) {
       continue;
@@ -585,7 +639,14 @@ async function tryHandleSecurityArchitectureEvidenceOrchestration(params: {
   const finalArchitecturePrompt = [
     "Answer as the security-architecture agent.",
     "Use the evidence below to provide the final architecture judgment.",
-    "Distinguish verified facts, inferences, and the preferred path.",
+    "Ground the answer in the evidence bundle and the known OpenClaw deployment context only.",
+    "Do not invent controls, policies, MFA, encryption, authenticated URLs, or security gates that are not explicitly present in the evidence bundle.",
+    "Do not suggest commands, tool calls, or file paths.",
+    "Do not restate a fact as a stronger claim than it appears in the evidence bundle.",
+    "Name the weakest trust boundary first.",
+    "State clearly whether this is a sound target design or mostly layered mitigations.",
+    "Keep the answer compact and specific to this deployment.",
+    "Use this exact structure: Judgment, Evidence Used, Unknowns, Preferred Path.",
     `Original question:\n${originalText}`,
     `Evidence bundle:\n${JSON.stringify(evidenceBundle, null, 2)}`,
   ].join("\n\n");

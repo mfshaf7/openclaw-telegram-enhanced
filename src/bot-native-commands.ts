@@ -79,7 +79,10 @@ import {
   evaluateTelegramGroupBaseAccess,
   evaluateTelegramGroupPolicyAccess,
 } from "./group-access.js";
-import { resolveTelegramGroupPromptSettings } from "./group-config-helpers.js";
+import {
+  appendHostControlTopicSystemPrompt,
+  resolveTelegramGroupPromptSettings,
+} from "./group-config-helpers.js";
 import { buildInlineKeyboard } from "./send.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
@@ -705,6 +708,12 @@ export const registerTelegramNativeCommands = ({
             groupConfig,
             topicConfig,
           });
+          const effectiveGroupSystemPrompt = appendHostControlTopicSystemPrompt({
+            groupSystemPrompt,
+            isGroup,
+            resolvedThreadId,
+            agentId: route.agentId,
+          });
           const { sessionKey: commandSessionKey, commandTargetSessionKey } =
             resolveNativeCommandSessionTargets({
               agentId: route.agentId,
@@ -740,7 +749,10 @@ export const registerTelegramNativeCommands = ({
             ChatType: isGroup ? "group" : "direct",
             ConversationLabel: conversationLabel,
             GroupSubject: isGroup ? (msg.chat.title ?? undefined) : undefined,
-            GroupSystemPrompt: isGroup || (!isGroup && groupConfig) ? groupSystemPrompt : undefined,
+            GroupSystemPrompt:
+              isGroup || (!isGroup && groupConfig)
+                ? effectiveGroupSystemPrompt || undefined
+                : undefined,
             SenderName: buildSenderName(msg),
             SenderId: senderId || undefined,
             SenderUsername: senderUsername || undefined,

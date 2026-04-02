@@ -1,3 +1,4 @@
+import { InputFile } from "grammy";
 import type { Message, ReactionTypeEmoji } from "@grammyjs/types";
 import { resolveAgentDir, resolveDefaultAgentId } from "openclaw/plugin-sdk/agent-runtime";
 import { resolveDefaultModelForAgent } from "openclaw/plugin-sdk/agent-runtime";
@@ -1265,7 +1266,7 @@ export const registerTelegramHandlers = ({
           },
           replyMedia: async (mediaPaths: string[]) => {
             for (const mediaPath of mediaPaths) {
-              await bot.api.sendDocument(callbackMessage.chat.id, mediaPath, {
+              await bot.api.sendDocument(callbackMessage.chat.id, new InputFile(mediaPath), {
                 message_thread_id: messageThreadId,
               });
             }
