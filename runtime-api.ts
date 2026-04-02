@@ -1,19 +1,12 @@
 export type {
-  ChannelMessageActionAdapter,
-  ChannelPlugin,
   OpenClawConfig,
-  OpenClawPluginApi,
-  PluginRuntime,
   TelegramAccountConfig,
   TelegramActionConfig,
   TelegramNetworkConfig,
-} from "openclaw/plugin-sdk/telegram";
+} from "openclaw/plugin-sdk/config-runtime";
+export type { ChannelMessageActionAdapter } from "openclaw/plugin-sdk/channel-contract";
+export type { ChannelPlugin, PluginRuntime } from "openclaw/plugin-sdk/core";
 export type { TelegramApiOverride } from "./src/send.js";
-export type {
-  OpenClawPluginService,
-  OpenClawPluginServiceContext,
-  PluginLogger,
-} from "openclaw/plugin-sdk/core";
 export type {
   AcpRuntime,
   AcpRuntimeCapabilities,
@@ -38,7 +31,7 @@ export {
   projectCredentialSnapshotFields,
   resolveConfiguredFromCredentialStatuses,
   resolveTelegramPollVisibility,
-} from "openclaw/plugin-sdk/telegram";
+} from "openclaw/plugin-sdk/telegram-core";
 export {
   buildChannelConfigSchema,
   getChatChannelMeta,
