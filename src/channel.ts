@@ -43,6 +43,7 @@ import {
 import { buildTelegramExecApprovalButtons } from "./approval-buttons.js";
 import { auditTelegramGroupMembership, collectTelegramUnmentionedGroupIds } from "./audit.js";
 import { buildTelegramGroupPeerId } from "./bot/helpers.js";
+import { telegramMessageActions as localTelegramMessageActions } from "./channel-actions.js";
 import {
   listTelegramDirectoryGroupsFromConfig,
   listTelegramDirectoryPeersFromConfig,
@@ -266,11 +267,15 @@ function hasTelegramExecApprovalDmRoute(cfg: OpenClawConfig): boolean {
 
 const telegramMessageActions: ChannelMessageActionAdapter = {
   describeMessageTool: (ctx) =>
-    getTelegramRuntime().channel.telegram.messageActions?.describeMessageTool?.(ctx) ?? null,
+    getTelegramRuntime().channel.telegram.messageActions?.describeMessageTool?.(ctx) ??
+    localTelegramMessageActions.describeMessageTool?.(ctx) ??
+    null,
   extractToolSend: (ctx) =>
-    getTelegramRuntime().channel.telegram.messageActions?.extractToolSend?.(ctx) ?? null,
+    getTelegramRuntime().channel.telegram.messageActions?.extractToolSend?.(ctx) ??
+    localTelegramMessageActions.extractToolSend?.(ctx) ??
+    null,
   handleAction: async (ctx) => {
-    const ma = getTelegramRuntime().channel.telegram.messageActions;
+    const ma = getTelegramRuntime().channel.telegram.messageActions ?? localTelegramMessageActions;
     if (!ma?.handleAction) {
       throw new Error("Telegram message actions not available");
     }
