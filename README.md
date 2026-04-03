@@ -85,6 +85,21 @@ Read in this order:
 2. [docs/install.md](docs/install.md)
 3. [docs/configuration.md](docs/configuration.md)
 
+## Test Model
+
+This repository has two valid test scopes:
+
+- `npm test` or `npm run test:standalone`
+  - runs the repo-owned local utility and routing checks that do not require an
+    upstream OpenClaw source tree or plugin SDK package set
+- `npm run test:bundle`
+  - runs the full bundled test suite and may depend on upstream OpenClaw
+    source layout or deployment-workspace context
+
+This split is intentional. The repository should be independently verifiable for
+its local contract and packaging metadata, but the full Telegram bundle surface
+still exercises integration seams that belong to the wider OpenClaw bundle.
+
 ## Relationship To Other Repositories
 
 - `openclaw-host-bridge` owns host enforcement

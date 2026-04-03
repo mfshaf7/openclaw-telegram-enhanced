@@ -19,6 +19,11 @@
     "@grammyjs/transformer-throttler": "^1.2.1",
     "grammy": "^1.41.1"
   },
+  "scripts": {
+    "test": "npm run test:standalone",
+    "test:standalone": "vitest run src/allow-from.test.ts src/normalize.test.ts src/forum-service-message.test.ts src/caption.test.ts src/allowed-updates.test.ts src/model-buttons.test.ts src/targets.test.ts",
+    "test:bundle": "vitest run"
+  },
   "openclaw": {
     "extensions": [
       "./index.ts"
@@ -40,6 +45,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.4"
   }
 }
