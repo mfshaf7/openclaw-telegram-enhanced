@@ -39,18 +39,87 @@ const wasSentByBot = vi.hoisted(() => vi.fn(() => false));
 const loadSessionStore = vi.hoisted(() => vi.fn());
 const resolveStorePath = vi.hoisted(() => vi.fn(() => "/tmp/sessions.json"));
 const generateTopicLabel = vi.hoisted(() => vi.fn());
+const resolveSessionStoreEntry = vi.hoisted(() =>
+  vi.fn(({ store, sessionKey }: { store: Record<string, unknown>; sessionKey: string }) => ({
+    existing:
+      store && typeof store === "object" && !Array.isArray(store)
+        ? (store[sessionKey] as Record<string, unknown> | undefined)
+        : undefined,
+  })),
+);
 
 vi.mock("./draft-stream.js", () => ({
   createTelegramDraftStream,
 }));
 
-vi.mock("openclaw/plugin-sdk/reply-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/reply-runtime")>();
-  return {
-    ...actual,
-    generateTopicLabel,
-  };
-});
+vi.mock("./bot-deps.js", () => ({
+  defaultTelegramBotDeps: {},
+}));
+
+vi.mock("./exec-approvals.js", () => ({
+  shouldSuppressLocalTelegramExecApprovalPrompt: vi.fn(() => false),
+  looksLikeTelegramExecApprovalFallbackText: vi.fn(() => false),
+}));
+
+vi.mock("./format.js", () => ({
+  renderTelegramHtmlText: vi.fn((text?: string) => text ?? ""),
+}));
+
+vi.mock("./network-errors.js", () => ({
+  isSafeToRetrySendError: vi.fn(
+    (err: { code?: unknown }) => typeof err?.code === "string" && err.code === "ECONNREFUSED",
+  ),
+  isTelegramClientRejection: vi.fn(() => false),
+  isRecoverableTelegramNetworkError: vi.fn(() => false),
+  tagTelegramNetworkError: vi.fn(),
+  getTelegramNetworkErrorOrigin: vi.fn(() => null),
+}));
+
+vi.mock("openclaw/plugin-sdk/agent-runtime", () => ({
+  resolveAgentDir: vi.fn((_cfg, agentId: string) => `/tmp/.openclaw/workspace-${agentId}`),
+  findModelInCatalog: vi.fn(() => null),
+  loadModelCatalog: vi.fn(async () => []),
+  modelSupportsVision: vi.fn(() => false),
+  resolveDefaultModelForAgent: vi.fn(() => ({ provider: "openai", model: "gpt-test" })),
+  formatReasoningMessage: vi.fn((text?: string) =>
+    text ? `Reasoning:\n_${text.trim()}_` : "",
+  ),
+  resolveAckReaction: vi.fn(() => null),
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-feedback", () => ({
+  logAckFailure: vi.fn(),
+  logTypingFailure: vi.fn(),
+  removeAckReactionAfterReply: vi.fn(),
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-reply-pipeline", () => ({
+  createChannelReplyPipeline: vi.fn(() => ({ onModelSelected: undefined })),
+}));
+
+vi.mock("openclaw/plugin-sdk/media-runtime", () => ({
+  getAgentScopedMediaLocalRoots: vi.fn((_cfg, agentId: string) => [
+    `/tmp/.openclaw/workspace-${agentId}`,
+  ]),
+}));
+
+vi.mock("openclaw/plugin-sdk/reply-history", () => ({
+  clearHistoryEntriesIfEnabled: vi.fn(),
+}));
+
+vi.mock("openclaw/plugin-sdk/reply-payload", () => ({
+  resolveSendableOutboundReplyParts: vi.fn((payload: { text?: unknown; media?: unknown }) => ({
+    ...payload,
+    text: typeof payload?.text === "string" ? payload.text : "",
+    hasMedia: Boolean(payload?.media),
+  })),
+}));
+
+vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
+  resolveChunkMode: vi.fn(() => "auto"),
+  resolveAutoTopicLabelConfig: vi.fn(() => null),
+  generateTopicLabel,
+}));
 
 vi.mock("./bot/delivery.js", () => ({
   deliverReplies,
@@ -73,15 +142,78 @@ vi.mock("./send.js", () => ({
   sendStickerTelegram,
 }));
 
-vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
-  return {
-    ...actual,
-    loadConfig,
-    loadSessionStore,
-    resolveStorePath,
-  };
-});
+vi.mock("openclaw/plugin-sdk/config-runtime", () => ({
+  loadConfig,
+  loadSessionStore,
+  resolveStorePath,
+  resolveSessionStoreEntry,
+  resolveMarkdownTableMode: vi.fn(() => "telegram"),
+}));
+
+vi.mock("openclaw/plugin-sdk/runtime-env", () => ({
+  danger: vi.fn((text: string) => text),
+  logVerbose: vi.fn(),
+}));
+
+vi.mock("openclaw/plugin-sdk/text-runtime", () => ({
+  chunkMarkdownIR: vi.fn(() => []),
+  FILE_REF_EXTENSIONS_WITH_TLD: new Set<string>(),
+  isAutoLinkedFileRef: vi.fn(() => false),
+  markdownToIR: vi.fn((markdown?: string) => ({ text: markdown ?? "" })),
+  renderMarkdownWithMarkers: vi.fn((ir: { text?: string }) => ir?.text ?? ""),
+  findCodeRegions: vi.fn(() => []),
+  isInsideCode: vi.fn(() => false),
+  stripReasoningTagsFromText: vi.fn((text?: string, opts?: { trim?: "both" | "left" | "right" }) => {
+    const raw = text ?? "";
+    const withoutClosedTags = raw.replace(
+      /<\s*think(?:ing)?[^>]*>[\s\S]*?<\s*\/\s*think(?:ing)?\s*>/giu,
+      "",
+    );
+    const withoutDanglingOpen = withoutClosedTags.replace(
+      /<\s*think(?:ing)?[^>]*>[\s\S]*$/giu,
+      "",
+    );
+    if (opts?.trim === "both") {
+      return withoutDanglingOpen.trim();
+    }
+    if (opts?.trim === "left") {
+      return withoutDanglingOpen.trimStart();
+    }
+    if (opts?.trim === "right") {
+      return withoutDanglingOpen.trimEnd();
+    }
+    return withoutDanglingOpen;
+  }),
+  resolveGlobalSingleton: vi.fn((_key: string, factory: () => unknown) => factory()),
+  redactSensitiveText: vi.fn((text?: string) => text ?? ""),
+  fetchWithTimeout: vi.fn((...args: Parameters<typeof fetch>) => fetch(...args)),
+  isRecord: vi.fn((value: unknown) => Boolean(value) && typeof value === "object" && !Array.isArray(value)),
+  resolveGlobalMap: vi.fn(() => new Map()),
+  createScopedExpiringIdCache: vi.fn(() => ({
+    get: vi.fn(),
+    set: vi.fn(),
+    delete: vi.fn(),
+    clear: vi.fn(),
+  })),
+}));
+
+vi.mock("openclaw/plugin-sdk/infra-runtime", () => ({
+  collectErrorGraphCandidates: vi.fn((err: unknown) => [err]),
+  extractErrorCode: vi.fn((err: { code?: unknown }) =>
+    typeof err?.code === "string" ? err.code : undefined,
+  ),
+  formatErrorMessage: vi.fn((err: unknown) => String(err)),
+  readErrorName: vi.fn((err: { name?: unknown }) =>
+    typeof err?.name === "string" ? err.name : "",
+  ),
+  recordChannelActivity: vi.fn(),
+  isDiagnosticFlagEnabled: vi.fn(() => false),
+  formatUncaughtError: vi.fn((err: unknown) => String(err)),
+  createTelegramRetryRunner: vi.fn(() => async (task: () => Promise<unknown>) => task()),
+  isTruthyEnvValue: vi.fn((value: unknown) => Boolean(value)),
+  getExecApprovalReplyMetadata: vi.fn(() => null),
+  enqueueSystemEvent: vi.fn(),
+}));
 
 vi.mock("./sticker-cache.js", () => ({
   cacheSticker: vi.fn(),
@@ -122,6 +254,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    process.env.OPENCLAW_HOST_BRIDGE_TOKEN = "test-bridge-token";
     ({ dispatchTelegramMessage } = await import("./bot-message-dispatch.js"));
     createTelegramDraftStream.mockClear();
     dispatchReplyWithBufferedBlockDispatcher.mockClear();
@@ -487,8 +620,122 @@ describe("dispatchTelegramMessage draft streaming", () => {
     };
     expect(finalCall.ctx?.Body).toContain("Evidence bundle:");
     expect(finalCall.ctx?.Body).toContain("Do not invent controls");
-    expect(finalCall.ctx?.Body).toContain("bridge URL `http://bridge.local:48721` and auth token env");
+    expect(finalCall.ctx?.Body).toContain("\"host-control-boundary\"");
+    expect(finalCall.ctx?.Body).toContain("host-control.bridge.url: http://bridge.local:48721");
     expect(deliverReplies).toHaveBeenCalledTimes(2);
+  });
+
+  it("orchestrates plain current-system assessment wording through the evidence topic", async () => {
+    deliverReplies.mockResolvedValue({ delivered: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          result: {
+            components: {
+              bridge: { ok: true, mode: "operator_controlled" },
+              integrations: {
+                gateway: { ok: true, health: "healthy" },
+                wsl: { detected: true, ok: true },
+              },
+            },
+          },
+        }),
+      })),
+    );
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ ctx, dispatcherOptions }) => {
+        const body = String((ctx as { Body?: string }).Body ?? "");
+        if (body.includes("Evidence bundle:")) {
+          await dispatcherOptions.deliver(
+            { text: "Judgment: the current system is acceptable but still layered mitigations." },
+            { kind: "final" },
+          );
+          return { queuedFinal: true };
+        }
+        throw new Error(`unexpected dispatch body: ${body}`);
+      },
+    );
+
+    await dispatchWithContext({
+      context: createContext({
+        isGroup: true,
+        chatId: -1002519919856,
+        msg: {
+          chat: { id: -1002519919856, type: "supergroup" },
+          message_id: 456,
+          message_thread_id: 2,
+        } as unknown as TelegramMessageContext["msg"],
+        threadSpec: { id: 2, scope: "group" } as unknown as TelegramMessageContext["threadSpec"],
+        route: {
+          agentId: "security-architecture",
+          accountId: "default",
+        } as unknown as TelegramMessageContext["route"],
+        ctxPayload: {
+          SessionKey: "agent:security-architecture:telegram:group:-1002519919856:topic:2",
+          Body: "Please assess the current system architecture.",
+          RawBody: "Please assess the current system architecture.",
+        } as unknown as TelegramMessageContext["ctxPayload"],
+      }),
+      cfg: {
+        channels: {
+          telegram: {
+            groups: {
+              "-1002519919856": {
+                topics: {
+                  "2": { agentId: "security-architecture", enabled: true },
+                  "11": { agentId: "security-evidence", enabled: true },
+                },
+              },
+            },
+          },
+        },
+        plugins: {
+          entries: {
+            "host-control": {
+              config: {
+                bridgeUrl: "http://bridge.local:48721",
+              },
+            },
+          },
+        },
+        agents: {
+          list: [
+            { id: "security-architecture", tools: { deny: ["memory_search"] } },
+            {
+              id: "security-evidence",
+              tools: { allow: ["host_control_health_check"], deny: ["memory_search", "exec"] },
+            },
+          ],
+        },
+        bindings: [
+          {
+            agentId: "security-evidence",
+            match: {
+              channel: "telegram",
+              peer: { kind: "group", id: "-1002519919856:topic:11" },
+            },
+          },
+        ],
+      },
+      streamMode: "off",
+    });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    const finalCall = dispatchReplyWithBufferedBlockDispatcher.mock.calls[0]?.[0] as {
+      ctx?: { Body?: string };
+    };
+    expect(finalCall.ctx?.Body).toContain("Evidence bundle:");
+    expect(finalCall.ctx?.Body).toContain("\"assessment_scope\": \"current-system-assessment\"");
+    expect(finalCall.ctx?.Body).toContain("\"routing-and-agent-surface\"");
+    expect(finalCall.ctx?.Body).toContain("\"host-control-boundary\"");
+    expect(finalCall.ctx?.Body).toContain("\"identity-and-approval-boundary\"");
+    expect(finalCall.ctx?.Body).toContain("\"network-exposure\"");
+    expect(finalCall.ctx?.Body).toContain("\"secret-delivery-and-trust-root\"");
+    expect(finalCall.ctx?.Body).toContain("\"restart-resilience-and-drift\"");
+    expect(finalCall.ctx?.Body).toContain("\"artifact-integrity-and-promotion\"");
   });
 
   function createReasoningStreamContext(): TelegramMessageContext {

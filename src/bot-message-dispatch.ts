@@ -56,13 +56,15 @@ import {
   tryHandleForcedHostControlReadTelegram,
   tryHandleForcedHostControlScreenshotTelegram,
 } from "./bot-message-dispatch.host-control.js";
+import { buildSecurityEvidenceBundle } from "./security-evidence/collector.js";
+import { shouldRunSecurityEvidenceOrchestration } from "./security-evidence/question-scope.js";
+import type { SecurityEvidenceBundle } from "./security-evidence/types.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 const SECURITY_ARCHITECTURE_AGENT_ID = "security-architecture";
 const SECURITY_EVIDENCE_AGENT_ID = "security-evidence";
 const SECURITY_EVIDENCE_COLLECTION_FAILED =
   "Evidence collection failed because the evidence agent did not return a valid structured evidence bundle.";
-const DEFAULT_HOST_CONTROL_AUTH_TOKEN_ENV = "OPENCLAW_HOST_BRIDGE_TOKEN";
 
 /** Minimum chars before sending first streaming message (improves push notification UX) */
 const DRAFT_MIN_INITIAL_CHARS = 30;
@@ -132,252 +134,12 @@ type TelegramThreadSpec = {
   scope?: string;
 };
 
-type SecurityEvidenceBundle = {
-  type: "EVIDENCE_BUNDLE";
-  question: string;
-  verified_facts: string[];
-  inferences: string[];
-  unknowns: string[];
-  confidence: string;
-  recommended_next_check: string[];
-};
-
-type SecurityBridgeConfig = {
-  bridgeUrl: string;
-  authToken: string;
-  authTokenEnv: string;
-};
-
 function extractTelegramBodyText(ctxPayload: {
   RawBody?: string;
   Body?: string;
   BodyForAgent?: string;
 }): string {
   return ctxPayload.RawBody ?? ctxPayload.BodyForAgent ?? ctxPayload.Body ?? "";
-}
-
-function pushFact(facts: string[], key: string, value: string): void {
-  facts.push(`${key}: ${value}`);
-}
-
-function resolveSecurityBridgeConfig(cfg: OpenClawConfig): SecurityBridgeConfig | null {
-  const pluginEntry = cfg.plugins?.entries?.["host-control"];
-  const pluginCfg =
-    pluginEntry?.config && typeof pluginEntry.config === "object" && !Array.isArray(pluginEntry.config)
-      ? pluginEntry.config
-      : {};
-  const bridgeUrl = typeof pluginCfg.bridgeUrl === "string" ? pluginCfg.bridgeUrl.trim() : "";
-  if (!bridgeUrl) {
-    return null;
-  }
-  const authTokenEnv =
-    typeof pluginCfg.authTokenEnv === "string" && pluginCfg.authTokenEnv.trim()
-      ? pluginCfg.authTokenEnv.trim()
-      : DEFAULT_HOST_CONTROL_AUTH_TOKEN_ENV;
-  const authToken = process.env[authTokenEnv]?.trim() ?? "";
-  if (!authToken) {
-    return null;
-  }
-  return {
-    bridgeUrl: bridgeUrl.replace(/\/+$/, ""),
-    authToken,
-    authTokenEnv,
-  };
-}
-
-async function callSecurityBridgeHealth(
-  config: SecurityBridgeConfig,
-): Promise<Record<string, unknown> | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const response = await fetch(`${config.bridgeUrl}/v1/bridge`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.authToken}`,
-      },
-      body: JSON.stringify({
-        request_id: `telegram-security-evidence-health-${Date.now()}`,
-        operation: "health.check",
-        arguments: {},
-        actor: {
-          channel: "telegram",
-          session_key: "security-evidence-orchestrator",
-          sender_id: "system",
-        },
-      }),
-      signal: controller.signal,
-    });
-    const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok || json?.ok !== true) {
-      return null;
-    }
-    return (json.result as Record<string, unknown> | undefined) ?? null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function summarizeTelegramBindings(cfg: OpenClawConfig, chatId: string): string[] {
-  const summaries: string[] = [];
-  const telegramCfg = cfg.channels?.telegram;
-  const groupCfg =
-    telegramCfg && typeof telegramCfg === "object" && !Array.isArray(telegramCfg)
-      ? (telegramCfg as { groups?: Record<string, unknown> }).groups
-      : undefined;
-  const targetGroup =
-    groupCfg && typeof groupCfg === "object" && !Array.isArray(groupCfg)
-      ? groupCfg[chatId]
-      : undefined;
-  if (targetGroup && typeof targetGroup === "object" && !Array.isArray(targetGroup)) {
-    const topics = (targetGroup as { topics?: Record<string, unknown> }).topics;
-    if (topics && typeof topics === "object" && !Array.isArray(topics)) {
-      for (const [topicId, topicValue] of Object.entries(topics)) {
-        if (!topicValue || typeof topicValue !== "object" || Array.isArray(topicValue)) {
-          continue;
-        }
-        const topic = topicValue as { agentId?: unknown; enabled?: unknown };
-        if (topic.enabled === false || typeof topic.agentId !== "string" || !topic.agentId) {
-          continue;
-        }
-        pushFact(summaries, `telegram.topic.${topicId}.agent`, topic.agentId);
-      }
-    }
-  }
-  return summaries;
-}
-
-function summarizeAgentExposure(cfg: OpenClawConfig): string[] {
-  const facts: string[] = [];
-  const agentList = cfg.agents?.list ?? [];
-  for (const agent of agentList) {
-    if (!agent?.id) {
-      continue;
-    }
-    if (agent.id === SECURITY_EVIDENCE_AGENT_ID) {
-      const allow = Array.isArray(agent.tools?.allow) ? agent.tools.allow.join(", ") : "";
-      const deny = Array.isArray(agent.tools?.deny) ? agent.tools.deny.join(", ") : "";
-      if (allow) {
-        pushFact(facts, `${SECURITY_EVIDENCE_AGENT_ID}.tools.allow`, allow);
-      }
-      if (deny) {
-        pushFact(facts, `${SECURITY_EVIDENCE_AGENT_ID}.tools.deny`, deny);
-      }
-    }
-    if (agent.id === SECURITY_ARCHITECTURE_AGENT_ID) {
-      const deny = Array.isArray(agent.tools?.deny) ? agent.tools.deny.join(", ") : "none";
-      pushFact(facts, `${SECURITY_ARCHITECTURE_AGENT_ID}.tools.deny`, deny);
-    }
-  }
-  return facts;
-}
-
-async function buildDeterministicSecurityEvidenceBundle(params: {
-  cfg: OpenClawConfig;
-  chatId: string;
-  originalText: string;
-}): Promise<SecurityEvidenceBundle> {
-  const verifiedFacts: string[] = [];
-  const inferences: string[] = [];
-  const unknowns: string[] = [];
-  const recommendedNextCheck: string[] = [];
-
-  verifiedFacts.push(...summarizeTelegramBindings(params.cfg, params.chatId));
-  verifiedFacts.push(...summarizeAgentExposure(params.cfg));
-
-  const bridgeConfig = resolveSecurityBridgeConfig(params.cfg);
-  if (bridgeConfig) {
-    pushFact(verifiedFacts, "host-control.bridge.url", bridgeConfig.bridgeUrl);
-    pushFact(verifiedFacts, "host-control.bridge.authTokenEnv", bridgeConfig.authTokenEnv);
-    const health = await callSecurityBridgeHealth(bridgeConfig).catch(() => null);
-    const components =
-      health && typeof health.components === "object" && !Array.isArray(health.components)
-        ? (health.components as Record<string, unknown>)
-        : null;
-    const bridge = components?.bridge;
-    const integrations = components?.integrations;
-    const storage = components?.storage;
-    if (bridge && typeof bridge === "object" && !Array.isArray(bridge)) {
-      const bridgeOk = (bridge as Record<string, unknown>).ok === true;
-      const mode = (bridge as Record<string, unknown>).mode;
-      pushFact(verifiedFacts, "bridge.health.ok", String(bridgeOk));
-      if (typeof mode === "string" && mode) {
-        pushFact(verifiedFacts, "bridge.mode", mode);
-      }
-    } else {
-      unknowns.push("Bridge health facts could not be read from the current bridge response.");
-    }
-    if (integrations && typeof integrations === "object" && !Array.isArray(integrations)) {
-      const gateway = (integrations as Record<string, unknown>).gateway;
-      const wsl = (integrations as Record<string, unknown>).wsl;
-      if (gateway && typeof gateway === "object" && !Array.isArray(gateway)) {
-        const gatewayOk = (gateway as Record<string, unknown>).ok === true;
-        const gatewayHealth = (gateway as Record<string, unknown>).health;
-        pushFact(verifiedFacts, "gateway.health.ok", String(gatewayOk));
-        if (typeof gatewayHealth === "string" && gatewayHealth) {
-          pushFact(verifiedFacts, "gateway.health.status", gatewayHealth);
-        }
-      }
-      if (wsl && typeof wsl === "object" && !Array.isArray(wsl)) {
-        const detected = (wsl as Record<string, unknown>).detected === true;
-        const ok = (wsl as Record<string, unknown>).ok === true;
-        pushFact(verifiedFacts, "wsl.detected", String(detected));
-        pushFact(verifiedFacts, "wsl.ok", String(ok));
-      }
-    }
-    if (storage && typeof storage === "object" && !Array.isArray(storage)) {
-      const allowedRoots = (storage as Record<string, unknown>).allowedRoots;
-      if (Array.isArray(allowedRoots)) {
-        pushFact(verifiedFacts, "storage.allowedRoots.count", String(allowedRoots.length));
-      }
-    }
-  } else {
-    unknowns.push("The current runtime did not expose a usable OpenClaw host bridge configuration for evidence collection.");
-  }
-
-  pushFact(inferences, "routing.separation", "architecture and evidence are separated by topic");
-  pushFact(inferences, "host-ops.path", "telegram host-facing actions are mediated by host-control bridge");
-  pushFact(unknowns, "unknown", "remaining allowed tool surface on security-architecture is not yet validated as the right long-term boundary");
-  pushFact(unknowns, "unknown", "host firewall, MFA, and external network hardening are not proven by this evidence bundle");
-  pushFact(recommendedNextCheck, "next", "review whether remaining allowed tools on security-architecture are justified for a discussion-first agent");
-  pushFact(recommendedNextCheck, "next", "add a deterministic runtime verifier for telegram topic bindings and exposed agent tools");
-
-  return {
-    type: "EVIDENCE_BUNDLE",
-    question: params.originalText,
-    verified_facts: verifiedFacts,
-    inferences,
-    unknowns,
-    confidence: bridgeConfig ? "medium" : "low",
-    recommended_next_check: recommendedNextCheck,
-  };
-}
-
-function shouldRunSecurityEvidenceOrchestration(params: {
-  agentId: string;
-  text: string;
-}): boolean {
-  if (params.agentId !== SECURITY_ARCHITECTURE_AGENT_ID) {
-    return false;
-  }
-  const text = params.text.toLowerCase();
-  const explicitEvidenceRequest =
-    /\buse evidence\b/.test(text) ||
-    /\bwith evidence\b/.test(text) ||
-    /\bevidence if needed\b/.test(text) ||
-    /\bverify\b/.test(text);
-  if (explicitEvidenceRequest) {
-    return true;
-  }
-  const looksLikeCurrentSetupQuestion =
-    /\b(current|this)\b/.test(text) &&
-    /\b(setup|deployment|architecture|system)\b/.test(text) &&
-    /\b(security|secure|sound|risk|trust boundary|good enough|ok)\b/.test(text);
-  const looksLikeArchitectureJudgmentQuestion =
-    /\b(architecture|trust boundary|design|deployment)\b/.test(text) &&
-    /\b(sound|secure|security|risky|wrong|acceptable|good enough|ok)\b/.test(text);
-  return looksLikeCurrentSetupQuestion || looksLikeArchitectureJudgmentQuestion;
 }
 
 function resolveSecurityEvidenceTopicBinding(params: {
@@ -595,7 +357,7 @@ async function tryHandleSecurityArchitectureEvidenceOrchestration(params: {
     return false;
   }
 
-  const evidenceBundle = await buildDeterministicSecurityEvidenceBundle({
+  const evidenceBundle = await buildSecurityEvidenceBundle({
     cfg: params.cfg,
     chatId: params.chatId,
     originalText,
@@ -641,12 +403,15 @@ async function tryHandleSecurityArchitectureEvidenceOrchestration(params: {
     "Use the evidence below to provide the final architecture judgment.",
     "Ground the answer in the evidence bundle and the known OpenClaw deployment context only.",
     "Do not invent controls, policies, MFA, encryption, authenticated URLs, or security gates that are not explicitly present in the evidence bundle.",
-    "Do not suggest commands, tool calls, or file paths.",
+    "Do not suggest commands, tool calls, or file paths unless the user explicitly asked what to verify next.",
     "Do not restate a fact as a stronger claim than it appears in the evidence bundle.",
     "Name the weakest trust boundary first.",
-    "State clearly whether this is a sound target design or mostly layered mitigations.",
-    "Keep the answer compact and specific to this deployment.",
-    "Use this exact structure: Judgment, Evidence Used, Unknowns, Preferred Path.",
+    "State clearly whether the current system is a sound target design, an acceptable temporary state, or mostly layered mitigations.",
+    "Treat the evidence bundle as partial and question-driven, not exhaustive. If the bundle is too narrow for a strong claim, say that explicitly.",
+    "If the user asked to assess or evaluate the current system, spend most of the answer on current-state judgment and keep recommendations brief.",
+    "Do not collapse into generic best-practice suggestions when the user asked for an assessment.",
+    "Keep the answer concrete and specific to this deployment.",
+    "Use this exact structure: Judgment, Why, Evidence Used, Unknowns, Preferred Path.",
     `Original question:\n${originalText}`,
     `Evidence bundle:\n${JSON.stringify(evidenceBundle, null, 2)}`,
   ].join("\n\n");
