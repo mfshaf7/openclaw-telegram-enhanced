@@ -511,7 +511,7 @@ function formatHostOverviewReply(result: Record<string, unknown>): string {
   return [
     "Available drives:",
     driveLines,
-    home ? `Sevensoul home: \`${home}\`` : "",
+    home ? `Home directory: \`${home}\`` : "",
     "Top-level entries:",
     entryLines,
   ]
