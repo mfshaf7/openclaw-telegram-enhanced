@@ -267,15 +267,15 @@ function hasTelegramExecApprovalDmRoute(cfg: OpenClawConfig): boolean {
 
 const telegramMessageActions: ChannelMessageActionAdapter = {
   describeMessageTool: (ctx) =>
-    getTelegramRuntime().channel.telegram.messageActions?.describeMessageTool?.(ctx) ??
+    getTelegramRuntime().channel?.telegram?.messageActions?.describeMessageTool?.(ctx) ??
     localTelegramMessageActions.describeMessageTool?.(ctx) ??
     null,
   extractToolSend: (ctx) =>
-    getTelegramRuntime().channel.telegram.messageActions?.extractToolSend?.(ctx) ??
+    getTelegramRuntime().channel?.telegram?.messageActions?.extractToolSend?.(ctx) ??
     localTelegramMessageActions.extractToolSend?.(ctx) ??
     null,
   handleAction: async (ctx) => {
-    const ma = getTelegramRuntime().channel.telegram.messageActions ?? localTelegramMessageActions;
+    const ma = getTelegramRuntime().channel?.telegram?.messageActions ?? localTelegramMessageActions;
     if (!ma?.handleAction) {
       throw new Error("Telegram message actions not available");
     }
