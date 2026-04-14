@@ -1,11 +1,30 @@
 import type { SecurityAssessmentScope, SecurityEvidenceModuleId } from "./types.js";
 
+function looksLikeBroadCurrentSystemReview(text: string): boolean {
+  const hasAssessmentVerb =
+    /\b(check|assess|assessment|evaluate|evaluation|review|audit|judge|inspect|analyze|analyse)\b/.test(
+      text,
+    ) || /\bsecurity posture\b/.test(text);
+  const hasCurrentSystemQualifier =
+    /\b(current|this|overall|real|live|entire|whole|full|complete|my)\b/.test(text) &&
+    /\b(system|setup|deployment|architecture|environment)\b/.test(text);
+  const hasSecurityIntent =
+    /\b(security|secure|posture|risk|risky|trust boundary|good enough|acceptable|sound)\b/.test(
+      text,
+    );
+  return hasAssessmentVerb && hasCurrentSystemQualifier && hasSecurityIntent;
+}
+
 export function summarizeSecurityQuestionScope(originalText: string): SecurityAssessmentScope {
   const text = originalText.toLowerCase();
   const asksForCurrentAssessment =
-    /\b(assess|assessment|evaluate|evaluation|review|audit|judge|is)\b/.test(text) &&
-    /\b(current|this|overall|real|live)\b/.test(text) &&
-    /\b(system|setup|deployment|architecture|environment)\b/.test(text);
+    looksLikeBroadCurrentSystemReview(text) ||
+    (/\b(is)\b/.test(text) &&
+      /\b(current|this|overall|real|live)\b/.test(text) &&
+      /\b(system|setup|deployment|architecture|environment)\b/.test(text) &&
+      /\b(security|secure|posture|risk|risky|trust boundary|good enough|acceptable|sound)\b/.test(
+        text,
+      ));
   if (asksForCurrentAssessment) {
     return "current-system-assessment";
   }
@@ -83,10 +102,7 @@ export function shouldRunSecurityEvidenceOrchestration(params: {
   if (explicitEvidenceRequest) {
     return true;
   }
-  const looksLikeAssessmentRequest =
-    /\b(assess|assessment|evaluate|evaluation|review|audit|judge)\b/.test(text) &&
-    /\b(current|this|overall|real|live)\b/.test(text) &&
-    /\b(system|setup|deployment|architecture|environment)\b/.test(text);
+  const looksLikeAssessmentRequest = looksLikeBroadCurrentSystemReview(text);
   const looksLikeCurrentSetupQuestion =
     /\b(current|this)\b/.test(text) &&
     /\b(setup|deployment|architecture|system)\b/.test(text) &&
