@@ -66,8 +66,16 @@
     "openclaw.plugin.json",
     "runtime-api.ts",
     "setup-entry.ts",
-    "src/",
-    "tsconfig.host-control-check.json"
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.test-helpers.ts",
+    "!src/**/*.test-support.ts",
+    "!src/**/*.test-utils.ts",
+    "!src/**/*.test-harness.ts",
+    "!src/**/*.fixture-test-support.ts",
+    "!src/**/*.e2e.test.ts",
+    "!src/**/*.e2e-harness.ts",
+    "!src/**/*.d.ts"
   ],
   "publishConfig": {
     "access": "public"
