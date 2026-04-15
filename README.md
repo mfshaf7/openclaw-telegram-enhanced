@@ -1,6 +1,6 @@
 # openclaw-telegram-enhanced
 
-`openclaw-telegram-enhanced` is a bundled Telegram channel replacement for OpenClaw.
+`openclaw-telegram-enhanced` is a managed Telegram channel plugin package for OpenClaw.
 
 It exists because some Telegram behavior belongs at the channel layer, not in OpenClaw core and not in domain plugins like `host-control`.
 
@@ -43,22 +43,22 @@ This repository exists so Telegram-specific improvements stay reusable even when
 - `host-control` can use it for screenshots and file delivery
 - another plugin could later use the same button and media behavior
 
-## Deployment Model
+## Install Model
 
-This plugin replaces the bundled OpenClaw `telegram` channel through the bundled-plugin seam.
+This repository now targets the official OpenClaw plugin path. Package the plugin as a normal OpenClaw plugin artifact and install it with `openclaw plugins install <path-or-spec>` instead of copying source directly into `/app/extensions/telegram`.
 
 Important distinction:
 
 - repository/project name: `openclaw-telegram-enhanced`
 - runtime plugin id: `telegram`
 
-That is intentional. The runtime must still see it as the `telegram` channel plugin.
+That is intentional. The runtime still sees it as the `telegram` channel plugin, but the deployment path is now a managed plugin install rather than a bundled source copy.
 
 ## Relationship To The Deployment Workspace
 
 This repository is the canonical Telegram source repository.
 
-In the isolated deployment workflow, the deployment workspace may also carry a copy under `openclaw-telegram-enhanced/` so the bundled image build can copy it directly into the runtime image.
+In the isolated deployment workflow, the deployment workspace may also carry a copy under `openclaw-telegram-enhanced/` so the gateway source bundle can package the exact pinned revision into a plugin artifact during image builds.
 
 Operators should treat:
 
@@ -71,7 +71,7 @@ Operational rule:
 
 ## Main Capabilities
 
-- bundled Telegram channel replacement
+- managed Telegram channel plugin package
 - document-style delivery for staged local media
 - button-driven approval flows
 - deterministic routing hooks for selected Telegram actions

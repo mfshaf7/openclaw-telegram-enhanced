@@ -1,6 +1,11 @@
 {
   "id": "telegram",
-  "channels": ["telegram"],
+  "name": "Telegram",
+  "description": "Enhanced Telegram channel plugin for OpenClaw with deterministic delivery and approvals.",
+  "version": "2026.3.22",
+  "channels": [
+    "telegram"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

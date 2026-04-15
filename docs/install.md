@@ -2,39 +2,28 @@
 
 ## Purpose
 
-This plugin is intended to replace the bundled OpenClaw Telegram plugin through the bundled-plugin seam.
+This plugin is intended to ship as a normal managed OpenClaw plugin package.
 
 ## Supported Deployment Shape
 
-1. build a custom OpenClaw image
-2. replace the bundled `/app/extensions/telegram` directory with this plugin
+1. package the plugin as a `.tgz` or publish it to npm/ClawHub
+2. install it with `openclaw plugins install <path-or-spec>`
 3. keep the runtime plugin id as `telegram`
+4. avoid copying plugin source directly into `/app/extensions/telegram`
 
 ## Why This Is The Supported Path
 
-`telegram` is a built-in channel id.
+OpenClaw's official plugin guidance expects publishable plugin packages with accurate manifest and `package.json` metadata.
 
-If you try to load another `telegram` plugin through generic plugin path overrides, the runtime treats that as a duplicate-id override.
+Using `openclaw plugins install` keeps plugin provenance inside the runtime's managed install records and makes deployment reproducible for other operators.
 
-Replacing the bundled plugin instead gives the runtime exactly one `telegram` plugin candidate.
+## Current Compatibility Rule
 
-## Example Runtime Shape
+This package must only depend on public `openclaw/plugin-sdk/*` entrypoints.
 
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true
-    }
-  },
-  "plugins": {
-    "allow": ["telegram", "host-control"]
-  }
-}
-```
+If an upstream Telegram-specific helper is not available through the public SDK:
 
-## Notes
+- add or request a typed public seam upstream, or
+- keep a small local helper inside this repository
 
-- runtime plugin id remains `telegram`
-- repository name can still be `openclaw-telegram-enhanced`
-- short-lived dev experimentation can still use local override paths, but that is not the preferred long-lived deployment path
+Do not depend on private bundled-extension files or undocumented package paths.

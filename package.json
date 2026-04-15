@@ -2,7 +2,7 @@
   "name": "@mfshaf7/telegram-plugin",
   "version": "2026.3.22",
   "private": false,
-  "description": "Enhanced bundled Telegram replacement for OpenClaw with better delivery, approvals, and extensible integration hooks",
+  "description": "Managed Telegram channel plugin package for OpenClaw with deterministic delivery, approvals, and integration hooks",
   "type": "module",
   "keywords": [
     "openclaw",
@@ -22,7 +22,8 @@
   "scripts": {
     "test": "npm run test:standalone",
     "test:standalone": "vitest run src/allow-from.test.ts src/normalize.test.ts src/forum-service-message.test.ts src/caption.test.ts src/allowed-updates.test.ts src/model-buttons.test.ts src/targets.test.ts",
-    "test:bundle": "vitest run"
+    "test:bundle": "vitest run",
+    "pack:plugin": "npm pack"
   },
   "openclaw": {
     "extensions": [
@@ -36,16 +37,39 @@
       "detailLabel": "Telegram Bot",
       "docsPath": "/channels/telegram",
       "docsLabel": "telegram",
-      "blurb": "simplest way to get started — register a bot with @BotFather and get going.",
+      "blurb": "simplest way to get started \u2014 register a bot with @BotFather and get going.",
       "systemImage": "paperplane"
     },
     "bundle": {
       "stageRuntimeDependencies": true
+    },
+    "compat": {
+      "pluginApi": ">=2026.4.12",
+      "minGatewayVersion": "2026.4.12"
+    },
+    "build": {
+      "openclawVersion": "2026.4.12",
+      "pluginSdkVersion": "2026.4.12"
     }
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^6.0.2",
     "vitest": "^3.2.4"
+  },
+  "files": [
+    "README.md",
+    "allow-from.ts",
+    "api.ts",
+    "docs/",
+    "index.ts",
+    "openclaw.plugin.json",
+    "runtime-api.ts",
+    "setup-entry.ts",
+    "src/",
+    "tsconfig.host-control-check.json"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
