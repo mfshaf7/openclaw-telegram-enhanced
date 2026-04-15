@@ -1595,7 +1595,8 @@ export const registerTelegramHandlers = ({
         messageIdOverride: callback.id,
       });
     } catch (err) {
-      runtime.error?.(danger(`callback handler failed: ${String(err)}`));
+      const callbackError = err instanceof Error ? err.stack ?? err.message : String(err);
+      runtime.error?.(danger(`callback handler failed: ${callbackError}`));
     }
   });
 

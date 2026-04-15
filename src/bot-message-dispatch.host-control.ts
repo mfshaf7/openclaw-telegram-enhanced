@@ -2629,7 +2629,8 @@ export async function handleForcedHostControlReadCallback(params: {
     await params.clearButtons();
     return true;
   } catch (err) {
-    params.runtime.error?.(danger(`telegram forced host-control callback dispatch failed: ${String(err)}`));
+    const callbackError = err instanceof Error ? err.stack ?? err.message : String(err);
+    params.runtime.error?.(danger(`telegram forced host-control callback dispatch failed: ${callbackError}`));
     if (params.proposalId) {
       await clearDirectReadProposalById(params.sessionKey, params.proposalId);
     } else {
