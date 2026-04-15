@@ -1,6 +1,5 @@
 import type { Chat, Message, MessageOrigin, User } from "@grammyjs/types";
 import { formatLocationText, type NormalizedLocation } from "openclaw/plugin-sdk/channel-inbound";
-import { resolveTelegramPreviewStreamMode } from "openclaw/plugin-sdk/config-runtime";
 import type {
   TelegramDirectConfig,
   TelegramGroupConfig,
@@ -171,7 +170,23 @@ export function resolveTelegramStreamMode(telegramCfg?: {
   streaming?: unknown;
   streamMode?: unknown;
 }): TelegramStreamMode {
-  return resolveTelegramPreviewStreamMode(telegramCfg);
+  const streaming = telegramCfg?.streaming;
+  if (streaming === false || streaming === "off") {
+    return "off";
+  }
+  if (streaming === "block") {
+    return "block";
+  }
+  if (streaming === true || streaming === "progress" || streaming === "partial") {
+    return "partial";
+  }
+
+  const streamMode = telegramCfg?.streamMode;
+  if (streamMode === "off" || streamMode === "block" || streamMode === "partial") {
+    return streamMode;
+  }
+
+  return "partial";
 }
 
 export function buildTelegramGroupPeerId(chatId: number | string, messageThreadId?: number) {
