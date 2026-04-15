@@ -1,0 +1,4 @@
+**/*.test.ts
+**/*.test.mjs
+**/*.test-harness.ts
+**/__tests__/**
