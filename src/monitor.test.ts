@@ -150,7 +150,10 @@ async function expectOffsetConfirmationSkipped(offset: number | null) {
   expect(api.getUpdates).not.toHaveBeenCalled();
 }
 
-async function runMonitorAndCaptureStartupOrder(params?: { persistedOffset?: number | null }) {
+async function runMonitorAndCaptureStartupOrder(params?: {
+  persistedOffset?: number | null;
+  env?: Record<string, string | undefined>;
+}) {
   const { monitorTelegramProvider } = await import("./monitor.js");
   if (params && "persistedOffset" in params) {
     readTelegramUpdateOffsetSpy.mockResolvedValueOnce(params.persistedOffset ?? null);
@@ -174,7 +177,26 @@ async function runMonitorAndCaptureStartupOrder(params?: { persistedOffset?: num
     return makeAbortRunner(abort);
   });
 
-  await monitorTelegramProvider({ token: "tok", abortSignal: abort.signal });
+  const envRestore = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(params?.env ?? {})) {
+    envRestore.set(key, process.env[key]);
+    if (typeof value === "string") {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+  try {
+    await monitorTelegramProvider({ token: "tok", abortSignal: abort.signal });
+  } finally {
+    for (const [key, value] of envRestore) {
+      if (typeof value === "string") {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
+    }
+  }
   return { order };
 }
 
@@ -454,6 +476,15 @@ describe("monitorTelegramProvider (grammY)", () => {
     const { order } = await runMonitorAndCaptureStartupOrder();
 
     expect(api.deleteWebhook).toHaveBeenCalledWith({ drop_pending_updates: false });
+    expect(order).toEqual(["deleteWebhook", "run"]);
+  });
+
+  it("drops pending updates on startup when the env flag is enabled", async () => {
+    const { order } = await runMonitorAndCaptureStartupOrder({
+      env: { OPENCLAW_TELEGRAM_DROP_PENDING_UPDATES_ON_STARTUP: "1" },
+    });
+
+    expect(api.deleteWebhook).toHaveBeenCalledWith({ drop_pending_updates: true });
     expect(order).toEqual(["deleteWebhook", "run"]);
   });
 

@@ -3,6 +3,7 @@ import { resolveAgentMaxConcurrent } from "openclaw/plugin-sdk/config-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { formatErrorMessage } from "openclaw/plugin-sdk/infra-runtime";
+import { isTruthyEnvValue } from "openclaw/plugin-sdk/infra-runtime";
 import { waitForAbortSignal } from "openclaw/plugin-sdk/runtime-env";
 import { registerUnhandledRejectionHandler } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
@@ -65,6 +66,22 @@ function normalizePersistedUpdateId(value: number | null): number | null {
     return null;
   }
   return value;
+}
+
+function resolveDropPendingUpdatesOnStartup(params: {
+  accountId: string;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  const env = params.env ?? process.env;
+  const normalizedAccountId = params.accountId.trim().replace(/[^a-z0-9]+/gi, "_").toUpperCase();
+  const accountScopedValue =
+    normalizedAccountId && normalizedAccountId !== "DEFAULT"
+      ? env[`OPENCLAW_TELEGRAM_DROP_PENDING_UPDATES_ON_STARTUP_${normalizedAccountId}`]
+      : undefined;
+  if (typeof accountScopedValue === "string") {
+    return isTruthyEnvValue(accountScopedValue);
+  }
+  return isTruthyEnvValue(env.OPENCLAW_TELEGRAM_DROP_PENDING_UPDATES_ON_STARTUP);
 }
 
 /** Check if error is a Grammy HttpError (used to scope unhandled rejection handling) */
@@ -183,6 +200,9 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
     const telegramTransport = resolveTelegramTransport(proxyFetch, {
       network: account.config.network,
     });
+    const dropPendingUpdatesOnStartup = resolveDropPendingUpdatesOnStartup({
+      accountId: account.accountId,
+    });
 
     pollingSession = new TelegramPollingSession({
       token,
@@ -194,6 +214,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       runnerOptions: createTelegramRunnerOptions(cfg),
       getLastUpdateId: () => lastUpdateId,
       persistUpdateId,
+      dropPendingUpdatesOnStartup,
       log,
       telegramTransport,
     });

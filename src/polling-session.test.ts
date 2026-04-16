@@ -90,6 +90,7 @@ describe("TelegramPollingSession", () => {
       runnerOptions: {},
       getLastUpdateId: () => null,
       persistUpdateId: async () => undefined,
+      dropPendingUpdatesOnStartup: false,
       log: () => undefined,
       telegramTransport: undefined,
     });
@@ -169,6 +170,7 @@ describe("TelegramPollingSession", () => {
       runnerOptions: {},
       getLastUpdateId: () => null,
       persistUpdateId: async () => undefined,
+      dropPendingUpdatesOnStartup: false,
       log,
       telegramTransport: undefined,
     });
@@ -194,5 +196,67 @@ describe("TelegramPollingSession", () => {
       clearTimeoutSpy.mockRestore();
       dateNowSpy.mockRestore();
     }
+  });
+
+  it("drops pending updates only on the initial startup cleanup when configured", async () => {
+    const abort = new AbortController();
+    const deleteWebhook = vi.fn(async () => true);
+    const botStop = vi.fn(async () => undefined);
+    const runnerStop = vi.fn(async () => undefined);
+    const conflictError = Object.assign(new Error("Conflict: terminated by other getUpdates"), {
+      error_code: 409,
+      description: "Conflict: terminated by other getUpdates request",
+      method: "getUpdates",
+    });
+    const bot = {
+      api: {
+        deleteWebhook,
+        getUpdates: vi.fn(async () => []),
+        config: { use: vi.fn() },
+      },
+      stop: botStop,
+    };
+    createTelegramBotMock.mockReturnValue(bot);
+
+    let firstCycle = true;
+    runMock.mockImplementation(() => {
+      if (firstCycle) {
+        firstCycle = false;
+        return {
+          task: async () => {
+            throw conflictError;
+          },
+          stop: runnerStop,
+          isRunning: () => false,
+        };
+      }
+      return {
+        task: async () => {
+          abort.abort();
+        },
+        stop: runnerStop,
+        isRunning: () => false,
+      };
+    });
+
+    const session = new TelegramPollingSession({
+      token: "tok",
+      config: {},
+      accountId: "default",
+      runtime: undefined,
+      proxyFetch: undefined,
+      abortSignal: abort.signal,
+      runnerOptions: {},
+      getLastUpdateId: () => null,
+      persistUpdateId: async () => undefined,
+      dropPendingUpdatesOnStartup: true,
+      log: () => undefined,
+      telegramTransport: undefined,
+    });
+
+    await session.runUntilAbort();
+
+    expect(deleteWebhook).toHaveBeenNthCalledWith(1, { drop_pending_updates: true });
+    expect(deleteWebhook).toHaveBeenNthCalledWith(2, { drop_pending_updates: false });
   });
 });
