@@ -44,9 +44,12 @@ domain logic. The host bridge owns host enforcement.
 1. Telegram behavior changes land here first.
 2. The active runtime composition path stages this repo through
    `openclaw-runtime-distribution`.
-3. `platform-engineering` pins the resulting source SHA and digest for the
+3. Small Telegram-only stage fixes may also be rehearsed through a separate
+   stage-only Telegram overlay artifact path owned by
+   `platform-engineering` plus `openclaw-runtime-distribution`.
+4. `platform-engineering` pins the resulting source SHA and digest for the
    governed environment.
-4. Stage verifies real Telegram behavior before anything is promoted to prod.
+5. Stage verifies real Telegram behavior before anything is promoted to prod.
 
 ## Audit And Visibility
 
