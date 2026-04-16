@@ -332,11 +332,18 @@ export const registerTelegramHandlers = ({
     });
     const store = loadSessionStore(storePath);
     const entry = resolveSessionStoreEntry({ store, sessionKey }).existing;
-    const storedOverride = resolveStoredModelOverride({
-      sessionEntry: entry,
-      sessionStore: store,
-      sessionKey,
-    });
+    let storedOverride: ReturnType<typeof resolveStoredModelOverride> | null = null;
+    try {
+      storedOverride = resolveStoredModelOverride({
+        sessionEntry: entry,
+        sessionStore: store,
+        sessionKey,
+      });
+    } catch (error) {
+      const overrideError = error instanceof Error ? error.stack ?? error.message : String(error);
+      runtime.error?.(danger(`telegram stored model override resolution failed: ${overrideError}`));
+      storedOverride = null;
+    }
     if (storedOverride) {
       return {
         agentId: route.agentId,
@@ -1595,7 +1602,8 @@ export const registerTelegramHandlers = ({
         messageIdOverride: callback.id,
       });
     } catch (err) {
-      runtime.error?.(danger(`callback handler failed: ${String(err)}`));
+      const callbackError = err instanceof Error ? err.stack ?? err.message : String(err);
+      runtime.error?.(danger(`callback handler failed: ${callbackError}`));
     }
   });
 

@@ -47,6 +47,7 @@ type TelegramPollingSessionOpts = {
   runnerOptions: RunOptions<unknown>;
   getLastUpdateId: () => number | null;
   persistUpdateId: (updateId: number) => Promise<void>;
+  dropPendingUpdatesOnStartup: boolean;
   log: (line: string) => void;
   /** Pre-resolved Telegram transport to reuse across bot instances */
   telegramTransport?: TelegramTransport;
@@ -55,6 +56,7 @@ type TelegramPollingSessionOpts = {
 export class TelegramPollingSession {
   #restartAttempts = 0;
   #webhookCleared = false;
+  #startupPendingUpdatesDropped = false;
   #forceRestarted = false;
   #activeRunner: ReturnType<typeof run> | undefined;
   #activeFetchAbort: AbortController | undefined;
@@ -153,13 +155,19 @@ export class TelegramPollingSession {
     if (this.#webhookCleared) {
       return "ready";
     }
+    const dropPendingUpdates =
+      this.opts.dropPendingUpdatesOnStartup && !this.#startupPendingUpdatesDropped;
     try {
       await withTelegramApiErrorLogging({
         operation: "deleteWebhook",
         runtime: this.opts.runtime,
-        fn: () => bot.api.deleteWebhook({ drop_pending_updates: false }),
+        fn: () => bot.api.deleteWebhook({ drop_pending_updates: dropPendingUpdates }),
       });
       this.#webhookCleared = true;
+      if (dropPendingUpdates) {
+        this.#startupPendingUpdatesDropped = true;
+        this.opts.log("[telegram] Dropped pending updates before polling startup.");
+      }
       return "ready";
     } catch (err) {
       const shouldRetry = await this.#waitBeforeRetryOnRecoverableSetupError(

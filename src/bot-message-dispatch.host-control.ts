@@ -654,6 +654,12 @@ function formatHealthReply(result: Record<string, unknown>): string {
         continue;
       }
       const entry = value as Record<string, unknown>;
+      if (entry.checked === false || entry.required === false) {
+        const reason =
+          typeof entry.reason === "string" && entry.reason.trim() ? ` (${entry.reason.trim()})` : "";
+        lines.push(`- ${name}: not checked${reason}`);
+        continue;
+      }
       const base = `- ${name}: ${entry.ok === true || entry.detected === true ? "ok" : "degraded"}`;
       if (name === "gateway" && typeof entry.status === "number") {
         lines.push(`${base} (${entry.status})`);
@@ -2629,7 +2635,8 @@ export async function handleForcedHostControlReadCallback(params: {
     await params.clearButtons();
     return true;
   } catch (err) {
-    params.runtime.error?.(danger(`telegram forced host-control callback dispatch failed: ${String(err)}`));
+    const callbackError = err instanceof Error ? err.stack ?? err.message : String(err);
+    params.runtime.error?.(danger(`telegram forced host-control callback dispatch failed: ${callbackError}`));
     if (params.proposalId) {
       await clearDirectReadProposalById(params.sessionKey, params.proposalId);
     } else {
