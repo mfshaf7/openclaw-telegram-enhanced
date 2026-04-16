@@ -22,6 +22,7 @@
   "scripts": {
     "test": "npm run test:standalone",
     "test:standalone": "vitest run src/allow-from.test.ts src/normalize.test.ts src/forum-service-message.test.ts src/runtime-api.test.ts src/caption.test.ts src/allowed-updates.test.ts src/model-buttons.test.ts src/targets.test.ts",
+    "test:host-control-contract": "vitest run src/host-control-router.contract.test.ts",
     "test:bundle": "vitest run",
     "pack:plugin": "npm pack"
   },
@@ -61,6 +62,7 @@
     "README.md",
     "allow-from.ts",
     "api.ts",
+    "contracts/",
     "docs/",
     "index.ts",
     "openclaw.plugin.json",
