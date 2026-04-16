@@ -9,6 +9,7 @@ import {
   resetPluginCommandMocks,
 } from "../../../test/helpers/extensions/telegram-plugin-command.js";
 import type { TelegramBotDeps } from "./bot-deps.js";
+import { PLATFORM_OPERATOR_COMMAND } from "./platform-operator-command.js";
 const skillCommandMocks = vi.hoisted(() => ({
   listSkillCommandsForAgents: vi.fn(() => []),
 }));
@@ -226,6 +227,7 @@ describe("registerTelegramNativeCommands", () => {
     }
 
     expect(registeredCommands.some((entry) => entry.command === "export_session")).toBe(true);
+    expect(registeredCommands.some((entry) => entry.command === PLATFORM_OPERATOR_COMMAND.command)).toBe(true);
     expect(registeredCommands.some((entry) => entry.command === "custom_backup")).toBe(true);
     expect(registeredCommands.some((entry) => entry.command === "plugin_status")).toBe(true);
     expect(registeredCommands.some((entry) => entry.command === "plugin-status")).toBe(false);

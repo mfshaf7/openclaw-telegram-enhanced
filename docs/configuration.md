@@ -14,6 +14,9 @@ This document describes the configuration areas this Telegram replacement should
   - Telegram-specific shortcuts that should resolve to integrations
 - integration bindings
   - opt-in hooks for domain plugins such as `host-control`
+- read-only operator surfaces
+  - Telegram-native command views that present platform-owned troubleshooting
+    inventory without exposing mutating controls or secrets
 
 ## Startup Backlog Control
 

@@ -15,6 +15,8 @@ This repository owns Telegram-specific behavior such as:
 - staged and local media delivery behavior
 - deterministic Telegram-side routing helpers
 - Telegram integration hooks for domain plugins
+- read-only Telegram operator commands that expose product-safe platform
+  troubleshooting inventory
 
 It does not own:
 

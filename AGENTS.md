@@ -10,6 +10,7 @@ workspace.
 - staged and local media delivery behavior
 - deterministic Telegram-side routing helpers
 - Telegram integration hooks for domain plugins
+- read-only Telegram-native operator commands such as `/platform`
 
 It does not own host policy, bridge enforcement, or environment promotion.
 
@@ -29,6 +30,9 @@ It does not own host policy, bridge enforcement, or environment promotion.
 
 - Keep Telegram behavior at the channel layer; do not push Telegram-specific UX
   decisions down into host-bridge or platform repos.
+- Keep platform inventory truth in `platform-engineering`; Telegram may render
+  it, but should not become the canonical owner of endpoints, health checks, or
+  operator URLs.
 - If bundled runtime behavior is patched live, backport it here and then carry
   it through the governed build path.
 - Treat approval flows, callback handling, and media send behavior as
