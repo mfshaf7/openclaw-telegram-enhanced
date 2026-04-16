@@ -1,24 +1,26 @@
 # openclaw-telegram-enhanced
 
-`openclaw-telegram-enhanced` is a managed Telegram channel plugin package for OpenClaw.
+`openclaw-telegram-enhanced` is the canonical Telegram channel plugin source
+for this workspace.
 
-It exists because some Telegram behavior belongs at the channel layer, not in OpenClaw core and not in domain plugins like `host-control`.
+It exists because some behavior belongs at the channel layer, not in OpenClaw
+core and not in domain plugins such as `host-control`.
 
-## What This Repository Is For
+## What This Repository Owns
 
-This repository is for Telegram-specific behavior such as:
+This repository owns Telegram-specific behavior such as:
 
 - delivery shaping
-- button-based approval UX
-- local/staged media delivery
+- button-driven approval UX
+- staged and local media delivery behavior
 - deterministic Telegram-side routing helpers
-- integration hooks for domain plugins
+- Telegram integration hooks for domain plugins
 
-It is not for:
+It does not own:
 
-- host-control policy
-- Windows bridge enforcement
-- generic OpenClaw runtime orchestration
+- host policy or allowed-root enforcement
+- Windows or WSL bridge behavior
+- environment promotion or deployment approval
 
 ## Architecture Role
 
@@ -32,50 +34,49 @@ flowchart LR
     User --> Plugin --> Gateway --> Domain
 ```
 
-This plugin owns Telegram-specific transport and UX behavior. Domain plugins own domain logic.
+This repository owns the Telegram transport and UX layer. Domain plugins own
+domain logic. The host bridge owns host enforcement.
 
-## Why It Exists Separately From `host-control`
+## Current Workflow Role
 
-`host-control` is only one integration.
+1. Telegram behavior changes land here first.
+2. The active runtime composition path stages this repo through
+   `openclaw-runtime-distribution`.
+3. `platform-engineering` pins the resulting source SHA and digest for the
+   governed environment.
+4. Stage verifies real Telegram behavior before anything is promoted to prod.
 
-This repository exists so Telegram-specific improvements stay reusable even when the domain behavior changes. For example:
+## Audit And Visibility
 
-- `host-control` can use it for screenshots and file delivery
-- another plugin could later use the same button and media behavior
+Telegram behavior is mostly evidenced through packaging, logs, and real runtime
+checks rather than a dedicated metrics surface.
 
-## Install Model
+- package and repo validation:
+  - `npm run test:standalone`
+  - `npm run test:bundle`
+  - `npm pack` when packaging metadata matters
+- runtime evidence:
+  - gateway logs
+  - real Telegram reply and delivery behavior
+  - staged media send behavior
+  - approval and callback handling
 
-This repository now targets the official OpenClaw plugin path. Package the plugin as a normal OpenClaw plugin artifact and install it with `openclaw plugins install <path-or-spec>` instead of copying source directly into `/app/extensions/telegram`.
+If Telegram delivery or approval behavior changes, docs and stage verification
+steps should change with it.
 
-Important distinction:
+## Relationship To The Build Path
 
-- repository/project name: `openclaw-telegram-enhanced`
-- runtime plugin id: `telegram`
+This repository is the canonical source.
 
-That is intentional. The runtime still sees it as the `telegram` channel plugin, but the deployment path is now a managed plugin install rather than a bundled source copy.
-
-## Relationship To The Deployment Workspace
-
-This repository is the canonical Telegram source repository.
-
-In the isolated deployment workflow, the deployment workspace may also carry a copy under `openclaw-telegram-enhanced/` so the gateway source bundle can package the exact pinned revision into a plugin artifact during image builds.
-
-Operators should treat:
-
-- this repository as the canonical source for Telegram code and repo-specific docs
-- the deployment workspace copy as the bundled build input that must be kept aligned intentionally
+The current governed stage/prod image path stages it through
+`openclaw-runtime-distribution`. It should not be treated as a copied source
+tree inside other repos.
 
 Operational rule:
 
-- if the live bundled Telegram runtime is patched directly inside a gateway container, the same change must be backported here first and then mirrored into the deployment workspace copy before the deployment is considered reproducible
-
-## Main Capabilities
-
-- managed Telegram channel plugin package
-- document-style delivery for staged local media
-- button-driven approval flows
-- deterministic routing hooks for selected Telegram actions
-- integration support for `host-control`
+- if the bundled Telegram runtime is patched directly in a live container, the
+  same change must be backported here and then carried through the governed
+  build path before the deployment is considered reproducible
 
 ## Start Here
 
@@ -85,23 +86,13 @@ Read in this order:
 2. [docs/install.md](docs/install.md)
 3. [docs/configuration.md](docs/configuration.md)
 
-## Test Model
-
-This repository has two valid test scopes:
-
-- `npm test` or `npm run test:standalone`
-  - runs the repo-owned local utility and routing checks that do not require an
-    upstream OpenClaw source tree or plugin SDK package set
-- `npm run test:bundle`
-  - runs the full bundled test suite and may depend on upstream OpenClaw
-    source layout or deployment-workspace context
-
-This split is intentional. The repository should be independently verifiable for
-its local contract and packaging metadata, but the full Telegram bundle surface
-still exercises integration seams that belong to the wider OpenClaw bundle.
-
 ## Relationship To Other Repositories
 
-- `openclaw-host-bridge` owns host enforcement
-- `host-control-openclaw-plugin` exposes host operations as tools
-- `openclaw-telegram-enhanced` owns Telegram-specific delivery and UX behavior
+- `openclaw-host-bridge`
+  - host enforcement and audit
+- `host-control-openclaw-plugin`
+  - typed host-control tools and plugin contract
+- `openclaw-runtime-distribution`
+  - active gateway composition path
+- `platform-engineering`
+  - environment approval and promotion
