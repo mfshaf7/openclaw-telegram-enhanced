@@ -19,6 +19,11 @@ It does not own host policy, bridge enforcement, or environment promotion.
 - `docs/architecture.md`
 - `docs/install.md`
 - `docs/configuration.md`
+- `security-architecture/docs/architecture/components/openclaw-telegram-channel/README.md`
+- `security-architecture/docs/architecture/products/openclaw/data-flow-and-boundaries.md`
+- `security-architecture/docs/architecture/domains/ai-and-agentic.md`
+- `security-architecture/docs/reviews/security-review-checklist.md`
+- `security-architecture/docs/reviews/components/README.md`
 
 ## Working Rules
 
