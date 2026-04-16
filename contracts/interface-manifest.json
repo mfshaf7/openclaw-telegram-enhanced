@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "contractId": "openclaw-telegram-host-control-router.v1",
+  "ownerRepo": "openclaw-telegram-enhanced",
+  "exportedModule": "src/bot-message-dispatch.host-control.ts",
+  "hostControlReadRouting": {
+    "callbackPrefixes": {
+      "proceed": "pcctl:proceed:",
+      "cancel": "pcctl:cancel:"
+    },
+    "blockedConversationalTriggers": [
+      "what about",
+      "how about"
+    ],
+    "escapePhrases": [
+      "answer normally",
+      "just answer",
+      "no tools",
+      "don't use tools"
+    ],
+    "guardsGenericFindQueryBehindHostScope": true,
+    "resolvesPersistedProposalCallbacksById": true,
+    "clearsButtonsAfterDirectReadExecution": true
+  }
+}

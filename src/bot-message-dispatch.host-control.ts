@@ -224,6 +224,32 @@ const READ_ONLY_HOST_CONTROL_HINTS = [
   /\bwhere's\b/i,
 ];
 
+export const HOST_CONTROL_ROUTER_ESCAPE_PHRASES = [
+  "answer normally",
+  "just answer",
+  "no tools",
+  "don't use tools",
+] as const;
+
+export const HOST_CONTROL_ROUTER_BLOCKED_CONVERSATIONAL_TRIGGERS = [
+  "what about",
+  "how about",
+] as const;
+
+export const HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES = {
+  proceed: "pcctl:proceed:",
+  cancel: "pcctl:cancel:",
+} as const;
+
+export const HOST_CONTROL_ROUTER_CONTRACT = {
+  callbackPrefixes: HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES,
+  blockedConversationalTriggers: [...HOST_CONTROL_ROUTER_BLOCKED_CONVERSATIONAL_TRIGGERS],
+  escapePhrases: [...HOST_CONTROL_ROUTER_ESCAPE_PHRASES],
+  guardsGenericFindQueryBehindHostScope: true,
+  resolvesPersistedProposalCallbacksById: true,
+  clearsButtonsAfterDirectReadExecution: true,
+} as const;
+
 const NON_HOST_CONTROL_ESCAPE_HINTS = [
   /\bnot pc-?control\b/i,
   /\bnot on (?:my )?(?:pc|computer|desktop|host)\b/i,
@@ -280,7 +306,14 @@ function looksLikeReadOnlyHostControlText(text: string): boolean {
   return READ_ONLY_HOST_CONTROL_HINTS.some((pattern) => pattern.test(text));
 }
 
-function looksLikeNonHostControlEscape(text: string): boolean {
+function looksLikeBlockedConversationalHostControlTrigger(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return HOST_CONTROL_ROUTER_BLOCKED_CONVERSATIONAL_TRIGGERS.some((entry) =>
+    normalized.startsWith(entry),
+  );
+}
+
+export function looksLikeNonHostControlEscape(text: string): boolean {
   return NON_HOST_CONTROL_ESCAPE_HINTS.some((pattern) => pattern.test(text));
 }
 
@@ -335,7 +368,7 @@ function extractBrowseTargetName(text: string): string | null {
   return candidate || null;
 }
 
-function extractGeneralQuery(text: string): string | null {
+export function extractGeneralQuery(text: string): string | null {
   const absolutePath = extractAbsolutePath(text);
   if (absolutePath) {
     return null;
@@ -382,10 +415,39 @@ function normalizeFolderLikeQuery(query: string | null): string | null {
   return normalized || null;
 }
 
-function looksLikeHostScopedFindText(text: string): boolean {
+export function looksLikeHostScopedFindText(text: string): boolean {
   return /\b(?:file|files|folder|folders|directory|directories|path|desktop|downloads?|documents?|music|allowed roots?|pc|computer|host|drive|drives)\b/i.test(
     text,
   );
+}
+
+export function formatHostControlProposalCallbackData(
+  action: keyof typeof HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES,
+  proposalId: string,
+): string {
+  return `${HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES[action]}${proposalId}`;
+}
+
+export function matchHostControlProposalCallbackData(
+  data: string,
+): { action: keyof typeof HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES; proposalId: string | null } | null {
+  const raw = typeof data === "string" ? data.trim() : "";
+  if (!raw) {
+    return null;
+  }
+  if (raw.startsWith(HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES.proceed)) {
+    return {
+      action: "proceed",
+      proposalId: raw.slice(HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES.proceed.length) || null,
+    };
+  }
+  if (raw.startsWith(HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES.cancel)) {
+    return {
+      action: "cancel",
+      proposalId: raw.slice(HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES.cancel.length) || null,
+    };
+  }
+  return null;
 }
 
 function resolveProposalStorePath(sessionKey: unknown): string | null {
@@ -1275,7 +1337,7 @@ function formatHostControlCapabilitiesReply(): string {
   ].join("\n");
 }
 
-async function parseDirectReadIntent(
+export async function parseDirectReadIntent(
   text: string,
   recentContext: DirectRecentContext | null,
   config: HostControlTelegramConfig,
@@ -1287,6 +1349,9 @@ async function parseDirectReadIntent(
     return null;
   }
   if (matchesForcedDesktopScreenshotIntent(normalized)) {
+    return null;
+  }
+  if (looksLikeBlockedConversationalHostControlTrigger(normalized)) {
     return null;
   }
   if (
@@ -2559,8 +2624,16 @@ export async function tryHandleForcedHostControlReadTelegram(
         telegram: {
           buttons: [
             [
-              { text: "Proceed", callback_data: `pcctl:proceed:${proposalId}`, style: "success" },
-              { text: "Cancel", callback_data: `pcctl:cancel:${proposalId}`, style: "danger" },
+              {
+                text: "Proceed",
+                callback_data: formatHostControlProposalCallbackData("proceed", proposalId),
+                style: "success",
+              },
+              {
+                text: "Cancel",
+                callback_data: formatHostControlProposalCallbackData("cancel", proposalId),
+                style: "danger",
+              },
             ],
           ],
         },

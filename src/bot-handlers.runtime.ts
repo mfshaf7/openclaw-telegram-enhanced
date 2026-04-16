@@ -37,7 +37,10 @@ import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
 import { danger, logVerbose, warn } from "openclaw/plugin-sdk/runtime-env";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
-import { handleForcedHostControlReadCallback } from "./bot-message-dispatch.host-control.js";
+import {
+  handleForcedHostControlReadCallback,
+  matchHostControlProposalCallbackData,
+} from "./bot-message-dispatch.host-control.js";
 import {
   isSenderAllowed,
   normalizeDmAllowFromWithStore,
@@ -1249,8 +1252,8 @@ export const registerTelegramHandlers = ({
 
       const callbackConversationId =
         messageThreadId != null ? `${chatId}:topic:${messageThreadId}` : String(chatId);
-      const hostControlCallbackMatch = /^pcctl:(proceed|cancel)(?::([^:]+))?$/.exec(data);
-      if (hostControlCallbackMatch) {
+      const hostControlCallback = matchHostControlProposalCallbackData(data);
+      if (hostControlCallback) {
         const sessionState = resolveTelegramSessionState({
           chatId,
           isGroup,
@@ -1260,8 +1263,8 @@ export const registerTelegramHandlers = ({
           senderId,
         });
         const handled = await handleForcedHostControlReadCallback({
-          action: hostControlCallbackMatch[1] === "cancel" ? "cancel" : "proceed",
-          proposalId: hostControlCallbackMatch[2] ?? null,
+          action: hostControlCallback.action,
+          proposalId: hostControlCallback.proposalId,
           cfg: telegramDeps.loadConfig(),
           runtime,
           sessionKey: sessionState.sessionKey,

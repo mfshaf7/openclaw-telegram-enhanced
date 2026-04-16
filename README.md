@@ -64,6 +64,22 @@ checks rather than a dedicated metrics surface.
 If Telegram delivery or approval behavior changes, docs and stage verification
 steps should change with it.
 
+## Published Interface Contract
+
+This repository publishes the host-control Telegram routing seam for downstream
+repos in:
+
+- `contracts/interface-manifest.json`
+
+Validate it with:
+
+```bash
+npm run test:host-control-contract
+```
+
+`openclaw-runtime-distribution` should consume this published contract instead
+of grepping private router source text.
+
 ## Relationship To The Build Path
 
 This repository is the canonical source.
