@@ -97,6 +97,7 @@ import {
   type ProviderInfo,
 } from "./model-buttons.js";
 import { buildInlineKeyboard } from "./send.js";
+import { buildStoredModelOverrideParams } from "./stored-model-override-params.js";
 
 export const registerTelegramHandlers = ({
   cfg,
@@ -335,13 +336,20 @@ export const registerTelegramHandlers = ({
     });
     const store = loadSessionStore(storePath);
     const entry = resolveSessionStoreEntry({ store, sessionKey }).existing;
+    const resolvedDefault = resolveDefaultModelForAgent({
+      cfg: runtimeCfg,
+      agentId: route.agentId,
+    });
+    const storedOverrideParams = buildStoredModelOverrideParams({
+      defaultProvider: resolvedDefault.provider,
+      sessionEntry: entry,
+      sessionStore: store,
+      sessionKey,
+    });
+    const { entryProvider, entryModel } = storedOverrideParams;
     let storedOverride: ReturnType<typeof resolveStoredModelOverride> | null = null;
     try {
-      storedOverride = resolveStoredModelOverride({
-        sessionEntry: entry,
-        sessionStore: store,
-        sessionKey,
-      });
+      storedOverride = resolveStoredModelOverride(storedOverrideParams);
     } catch (error) {
       const overrideError = error instanceof Error ? error.stack ?? error.message : String(error);
       runtime.error?.(danger(`telegram stored model override resolution failed: ${overrideError}`));
@@ -357,14 +365,12 @@ export const registerTelegramHandlers = ({
           : storedOverride.model,
       };
     }
-    const provider = entry?.modelProvider?.trim();
-    const model = entry?.model?.trim();
-    if (provider && model) {
+    if (entryProvider && entryModel) {
       return {
         agentId: route.agentId,
         sessionEntry: entry,
         sessionKey,
-        model: `${provider}/${model}`,
+        model: `${entryProvider}/${entryModel}`,
       };
     }
     const modelCfg = runtimeCfg.agents?.defaults?.model;
