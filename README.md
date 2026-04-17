@@ -75,7 +75,7 @@ steps should change with it.
 - [`security-architecture/docs/architecture/products/openclaw/data-flow-and-boundaries.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/products/openclaw/data-flow-and-boundaries.md)
 - [`security-architecture/docs/architecture/domains/ai-and-agentic.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/domains/ai-and-agentic.md)
 - [`security-architecture/docs/reviews/security-review-checklist.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/security-review-checklist.md)
-- [`security-architecture/docs/reviews/components/README.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/components/README.md)
+- [`security-architecture/docs/reviews/components/2026-04-18-openclaw-telegram-channel-security-baseline.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/components/2026-04-18-openclaw-telegram-channel-security-baseline.md)
 
 ## Published Interface Contract
 
@@ -119,7 +119,7 @@ Read in this order:
    - [`security-architecture/docs/architecture/products/openclaw/data-flow-and-boundaries.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/products/openclaw/data-flow-and-boundaries.md)
    - [`security-architecture/docs/architecture/domains/ai-and-agentic.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/domains/ai-and-agentic.md)
    - [`security-architecture/docs/reviews/security-review-checklist.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/security-review-checklist.md)
-   - [`security-architecture/docs/reviews/components/README.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/components/README.md)
+   - [`security-architecture/docs/reviews/components/2026-04-18-openclaw-telegram-channel-security-baseline.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/components/2026-04-18-openclaw-telegram-channel-security-baseline.md)
 
 ## Relationship To Other Repositories
 
