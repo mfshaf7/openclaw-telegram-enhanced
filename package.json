@@ -24,6 +24,7 @@
     "test:standalone": "vitest run src/allow-from.test.ts src/normalize.test.ts src/forum-service-message.test.ts src/runtime-api.test.ts src/caption.test.ts src/allowed-updates.test.ts src/model-buttons.test.ts src/stored-model-override-params.test.ts src/targets.test.ts src/platform-operator-command.test.ts",
     "test:host-control-contract": "vitest run src/host-control-router.contract.test.ts",
     "test:bundle": "vitest run",
+    "validate:governance-docs": "python3 scripts/validate_governance_docs.py --repo-root .",
     "pack:plugin": "npm pack"
   },
   "openclaw": {

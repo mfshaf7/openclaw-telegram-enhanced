@@ -59,6 +59,7 @@ checks rather than a dedicated metrics surface.
 - package and repo validation:
   - `npm run test:standalone`
   - `npm run test:bundle`
+  - `npm run validate:governance-docs`
   - `npm pack` when packaging metadata matters
 - runtime evidence:
   - gateway logs
@@ -68,6 +69,13 @@ checks rather than a dedicated metrics surface.
 
 If Telegram delivery or approval behavior changes, docs and stage verification
 steps should change with it.
+
+Security-significant or production-impacting source changes should also leave a
+short evidence record under
+[`docs/records/change-records/`](docs/records/change-records/README.md). When
+the change should feed `security-architecture` automation, include structured
+`security_evidence` front matter so the cross-repo security index can harvest
+it directly.
 
 ## Security References
 

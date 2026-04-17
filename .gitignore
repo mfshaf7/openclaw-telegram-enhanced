@@ -8,3 +8,5 @@ coverage/
 .env
 .env.*
 openclaw-telegram-enhanced-*.tgz
+__pycache__/
+*.py[cod]

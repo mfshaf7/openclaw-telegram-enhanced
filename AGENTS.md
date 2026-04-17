@@ -20,6 +20,7 @@ It does not own host policy, bridge enforcement, or environment promotion.
 - `docs/architecture.md`
 - `docs/install.md`
 - `docs/configuration.md`
+- `docs/records/change-records/README.md`
 - `security-architecture/docs/architecture/components/openclaw-telegram-channel/README.md`
 - `security-architecture/docs/architecture/products/openclaw/data-flow-and-boundaries.md`
 - `security-architecture/docs/architecture/domains/ai-and-agentic.md`
@@ -43,3 +44,4 @@ It does not own host policy, bridge enforcement, or environment promotion.
 - `npm run test:standalone`
 - `npm run test:bundle` when bundled/integration seams changed
 - `npm pack` when packaging metadata matters
+- `npm run validate:governance-docs` when change-record evidence changes
