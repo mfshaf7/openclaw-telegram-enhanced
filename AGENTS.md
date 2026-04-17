@@ -45,3 +45,4 @@ It does not own host policy, bridge enforcement, or environment promotion.
 - `npm run test:bundle` when bundled/integration seams changed
 - `npm pack` when packaging metadata matters
 - `npm run validate:governance-docs` when change-record evidence changes
+- `npm run validate:change-record-requirement` for PR-shaped Telegram source changes that should emit a security-tagged change record

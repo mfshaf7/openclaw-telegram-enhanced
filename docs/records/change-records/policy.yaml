@@ -1,0 +1,18 @@
+schema_version: 1
+security_change_record_policy:
+  change_record_dir: docs/records/change-records
+  rules:
+    - id: telegram-runtime-and-operator-surface
+      description: Telegram runtime, packaging, routing, or operator-surface changes must carry a security-tagged change record.
+      match_any:
+        - allow-from.ts
+        - api.ts
+        - index.ts
+        - runtime-api.ts
+        - setup-entry.ts
+        - openclaw.plugin.json
+        - contracts/**
+        - src/**
+      required_review_areas:
+        - ai
+        - runtime

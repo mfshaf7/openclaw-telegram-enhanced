@@ -25,6 +25,7 @@
     "test:host-control-contract": "vitest run src/host-control-router.contract.test.ts",
     "test:bundle": "vitest run",
     "validate:governance-docs": "python3 scripts/validate_governance_docs.py --repo-root .",
+    "validate:change-record-requirement": "python3 scripts/validate_change_record_requirement.py --repo-root . --against-ref origin/main",
     "pack:plugin": "npm pack"
   },
   "openclaw": {
