@@ -60,6 +60,7 @@ checks rather than a dedicated metrics surface.
   - `npm run test:standalone`
   - `npm run test:bundle`
   - `npm run validate:governance-docs`
+  - `npm run validate:change-record-requirement`
   - `npm pack` when packaging metadata matters
 - runtime evidence:
   - gateway logs

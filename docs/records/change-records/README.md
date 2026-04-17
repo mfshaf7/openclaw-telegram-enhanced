@@ -18,3 +18,10 @@ When a change should feed `security-architecture` automation, include optional
 metadata directly.
 
 Start from [TEMPLATE.md](TEMPLATE.md).
+
+For pull-request shaped source changes that hit the policy-defined Telegram
+security seam, run:
+
+```bash
+python3 scripts/validate_change_record_requirement.py --repo-root . --against-ref origin/main
+```
