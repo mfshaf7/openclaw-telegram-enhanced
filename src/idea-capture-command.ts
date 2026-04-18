@@ -42,6 +42,31 @@ function buildIdeaTitle(rawText: string): string {
   return truncate(normalized || "Captured Telegram idea", 96);
 }
 
+function isIdeaHelpRequest(rawText: string): boolean {
+  const normalized = rawText.trim().toLowerCase();
+  return normalized === "help" || normalized === "--help" || normalized === "-h" ||
+    normalized === "usage" || normalized === "?";
+}
+
+function buildIdeaUsageText(): string {
+  return [
+    "Use /idea to capture a concrete idea into Workspace Proposals.",
+    "",
+    "Format:",
+    "/idea <idea text>",
+    "/idea help",
+    "",
+    "What to send:",
+    "- the idea itself or the problem worth tracking",
+    "- enough context to recognize it later",
+    "- one message is enough; triage and ownership come later",
+    "",
+    "Examples:",
+    "/idea We need a serious ingress controller path for k3s",
+    "/idea Add a proposal backlog lane for deferred architecture ideas",
+  ].join("\n");
+}
+
 export function isIdeaCaptureConfigured(env = process.env): boolean {
   return Boolean(
     trimEnv(BASE_URL_ENV, env) &&
@@ -80,8 +105,13 @@ export async function captureIdeaThroughBroker(
   const rawText = params.rawArgs?.trim() ?? "";
   if (!rawText) {
     return {
-      isError: true,
-      text: "Usage: /idea <text>. Provide the idea text you want captured.",
+      text: buildIdeaUsageText(),
+    };
+  }
+
+  if (isIdeaHelpRequest(rawText)) {
+    return {
+      text: buildIdeaUsageText(),
     };
   }
 
