@@ -47,6 +47,7 @@ input looks like from the Telegram surface itself.
 - changed empty `/idea` input to return guidance instead of a terse error
 - added tests that prove help stays local and does not call the broker
 - documented the in-band guidance path in the Telegram configuration contract
+- fixed the governance-doc workflow so CI installs `pyyaml` before running the validator
 
 ## Artifact And Deployment Evidence
 
