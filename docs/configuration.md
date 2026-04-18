@@ -4,6 +4,10 @@
 
 This document describes the configuration areas this Telegram replacement should own.
 
+Primary operator-facing command guide:
+
+- [operator-commands.md](operator-commands.md)
+
 ## Intended Areas
 
 - delivery policy

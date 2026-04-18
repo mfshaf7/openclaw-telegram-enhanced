@@ -17,6 +17,7 @@ It does not own host policy, bridge enforcement, or environment promotion.
 ## Read First
 
 - `README.md`
+- `docs/operator-commands.md`
 - `docs/architecture.md`
 - `docs/install.md`
 - `docs/configuration.md`

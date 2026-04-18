@@ -120,10 +120,11 @@ Operational rule:
 
 Read in this order:
 
-1. [docs/architecture.md](docs/architecture.md)
-2. [docs/install.md](docs/install.md)
-3. [docs/configuration.md](docs/configuration.md)
-4. security review surfaces:
+1. [docs/operator-commands.md](docs/operator-commands.md)
+2. [docs/architecture.md](docs/architecture.md)
+3. [docs/install.md](docs/install.md)
+4. [docs/configuration.md](docs/configuration.md)
+5. security review surfaces:
    - [`security-architecture/docs/architecture/components/openclaw-telegram-channel/README.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/components/openclaw-telegram-channel/README.md)
    - [`security-architecture/docs/architecture/products/openclaw/data-flow-and-boundaries.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/products/openclaw/data-flow-and-boundaries.md)
    - [`security-architecture/docs/architecture/domains/ai-and-agentic.md`](https://github.com/mfshaf7/security-architecture/blob/main/docs/architecture/domains/ai-and-agentic.md)
