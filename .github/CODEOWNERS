@@ -1,0 +1,11 @@
+# Telegram channel governance
+* @mfshaf7
+
+# Review and CI controls
+/.github/ @mfshaf7
+
+# Telegram operator and runtime surfaces
+/contracts/ @mfshaf7
+/docs/ @mfshaf7
+/scripts/ @mfshaf7
+/src/ @mfshaf7
