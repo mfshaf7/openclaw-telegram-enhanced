@@ -58,9 +58,9 @@ Current phase-1 contract:
   - does not hold OpenProject credentials
   - does not perform backlog workflow logic locally
 - `/idea help`
-  - returns in-band usage guidance and examples
-  - does not call the broker
-  - keeps command instructions available from the same Telegram surface where capture happens
+  - loads the canonical `idea-capture` workflow descriptor from `operator-orchestration-service`
+  - renders broker-owned semantics into Telegram-friendly text
+  - must not fall back to Telegram-local workflow truth if the broker is unavailable
 
 Expected runtime env vars for the thin adapter:
 
