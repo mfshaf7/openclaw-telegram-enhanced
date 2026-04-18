@@ -67,7 +67,16 @@ Current phase-1 contract:
     collection semantics into Telegram
 - `/idea list all`
   - stitches broker pagination into a full backlog view for operators who need
-    the complete stored idea set
+  the complete stored idea set
+  - still relies on broker-owned projections instead of exposing raw
+    OpenProject collection objects
+- `/idea list status <status>`
+  - loads a bounded broker-owned list slice filtered by one canonical lifecycle
+    status
+  - keeps status-filter semantics in the broker instead of inventing
+    Telegram-local backlog filtering
+- `/idea list all status <status>`
+  - stitches broker pagination into a full status-filtered backlog view
   - still relies on broker-owned projections instead of exposing raw
     OpenProject collection objects
 - `/idea show <idea-id>`

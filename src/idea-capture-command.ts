@@ -88,8 +88,8 @@ type IdeaCommandParams = {
 type IdeaCommandAction =
   | { kind: "help" }
   | { kind: "capture"; rawText: string }
-  | { kind: "list"; limit: number; offset: number }
-  | { kind: "listAll" }
+  | { kind: "list"; limit: number; offset: number; statusFilter?: string }
+  | { kind: "listAll"; statusFilter?: string }
   | { kind: "show"; ideaId: string };
 
 function trimEnv(name: string, env = process.env): string {
@@ -140,6 +140,21 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
   const subcommand = parts[0]?.toLowerCase() ?? "";
 
   if (subcommand === "all") {
+    if (parts[1]?.toLowerCase() === "status") {
+      const statusFilter = parts[2]?.trim().toLowerCase() ?? "";
+      if (!statusFilter || parts.length > 3) {
+        return {
+          isError: true,
+          text: "Usage: /idea list all status <status>",
+        };
+      }
+
+      return {
+        kind: "listAll",
+        statusFilter,
+      };
+    }
+
     if (parts.length > 1) {
       return {
         isError: true,
@@ -154,6 +169,21 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
 
   if (subcommand === "list" || subcommand === "ls") {
     if (parts[1]?.toLowerCase() === "all") {
+      if (parts[2]?.toLowerCase() === "status") {
+        const statusFilter = parts[3]?.trim().toLowerCase() ?? "";
+        if (!statusFilter || parts.length > 4) {
+          return {
+            isError: true,
+            text: "Usage: /idea list all status <status>",
+          };
+        }
+
+        return {
+          kind: "listAll",
+          statusFilter,
+        };
+      }
+
       if (parts.length > 2) {
         return {
           isError: true,
@@ -163,6 +193,33 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
 
       return {
         kind: "listAll",
+      };
+    }
+
+    if (parts[1]?.toLowerCase() === "status") {
+      const statusFilter = parts[2]?.trim().toLowerCase() ?? "";
+      if (!statusFilter || parts.length > 5) {
+        return {
+          isError: true,
+          text: "Usage: /idea list status <status> [limit] [offset]",
+        };
+      }
+
+      const limit = parts[3] ? parsePositiveInteger(parts[3]) : DEFAULT_LIST_LIMIT;
+      const offset = parts[4] ? parsePositiveInteger(parts[4]) : 1;
+
+      if (!limit || !offset || limit > MAX_LIST_LIMIT) {
+        return {
+          isError: true,
+          text: `Usage: /idea list status <status> [limit] [offset]\nLimit must be between 1 and ${MAX_LIST_LIMIT}.`,
+        };
+      }
+
+      return {
+        kind: "list",
+        limit,
+        offset,
+        statusFilter,
       };
     }
 
@@ -190,7 +247,7 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
     };
   }
 
-  if (subcommand === "show" || subcommand === "get" || subcommand === "status") {
+  if (subcommand === "show" || subcommand === "get") {
     const ideaId = parts[1]?.trim() ?? "";
     if (!/^idea-\d+$/i.test(ideaId)) {
       return {
@@ -493,20 +550,28 @@ function formatIdeaList(
     nextOffset?: number | null;
     offset: number;
     requestedLimit: number;
+    statusFilter?: string;
     total: number;
   },
 ): string {
   const normalizedIdeas = Array.isArray(ideas) ? ideas : [];
 
   if (normalizedIdeas.length === 0) {
+    if (options.statusFilter) {
+      return `No submitted ideas found with status ${options.statusFilter}.`;
+    }
+
     return "No submitted ideas found.";
   }
 
+  const scopeLabel = options.statusFilter
+    ? `Stored ideas with status ${options.statusFilter}`
+    : "Stored ideas";
   const count = normalizedIdeas.length;
   const lines = [
     options.mode === "all"
-      ? `Stored ideas: showing all ${options.total}`
-      : `Stored ideas: showing ${options.offset}-${options.offset + count - 1} of ${options.total}`,
+      ? `${scopeLabel}: showing all ${options.total}`
+      : `${scopeLabel}: showing ${options.offset}-${options.offset + count - 1} of ${options.total}`,
     renderCodeTable(
       ["Idea ID", "Status", "Updated", "Title"],
       normalizedIdeas.map((idea) => [
@@ -522,8 +587,15 @@ function formatIdeaList(
   lines.push("", "Details: /idea show <idea-id>");
 
   if (options.mode === "recent" && typeof options.nextOffset === "number") {
-    lines.push(`More: /idea list ${options.requestedLimit} ${options.nextOffset}`);
-    lines.push("Everything: /idea list all");
+    if (options.statusFilter) {
+      lines.push(
+        `More: /idea list status ${options.statusFilter} ${options.requestedLimit} ${options.nextOffset}`,
+      );
+      lines.push(`Everything: /idea list all status ${options.statusFilter}`);
+    } else {
+      lines.push(`More: /idea list ${options.requestedLimit} ${options.nextOffset}`);
+      lines.push("Everything: /idea list all");
+    }
   }
 
   return lines.join("\n");
@@ -533,11 +605,18 @@ async function listIdeasThroughBroker(
   config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
   action: Extract<IdeaCommandAction, { kind: "list" }>,
 ): Promise<IdeaCommandReply> {
+  const params = new URLSearchParams({
+    limit: String(action.limit),
+    offset: String(action.offset),
+  });
+  if (action.statusFilter) {
+    params.set("status", action.statusFilter);
+  }
   const payload = await performBrokerRequest(config, {
     errorPrefix: "Idea list failed",
     fallbackMessage: "Broker rejected the idea list request.",
     method: "GET",
-    path: `/v1/ideas?limit=${action.limit}&offset=${action.offset}`,
+    path: `/v1/ideas?${params.toString()}`,
   });
 
   if ("text" in payload) {
@@ -556,6 +635,7 @@ async function listIdeasThroughBroker(
           ? (payload as IdeaListResponse).page?.offset ?? 1
           : 1,
       requestedLimit: action.limit,
+      statusFilter: action.statusFilter,
       total:
         typeof (payload as IdeaListResponse).page?.total === "number"
           ? (payload as IdeaListResponse).page?.total ?? 0
@@ -568,6 +648,7 @@ async function listIdeasThroughBroker(
 
 async function listAllIdeasThroughBroker(
   config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+  action: Extract<IdeaCommandAction, { kind: "listAll" }>,
 ): Promise<IdeaCommandReply> {
   const collected: NonNullable<IdeaListResponse["ideas"]> = [];
   let offset = 1;
@@ -587,7 +668,11 @@ async function listAllIdeasThroughBroker(
       errorPrefix: "Idea list failed",
       fallbackMessage: "Broker rejected the idea list request.",
       method: "GET",
-      path: `/v1/ideas?limit=${MAX_LIST_LIMIT}&offset=${offset}`,
+      path: `/v1/ideas?${new URLSearchParams({
+        limit: String(MAX_LIST_LIMIT),
+        offset: String(offset),
+        ...(action.statusFilter ? { status: action.statusFilter } : {}),
+      }).toString()}`,
     });
 
     if ("text" in payload) {
@@ -612,6 +697,7 @@ async function listAllIdeasThroughBroker(
       mode: "all",
       offset: 1,
       requestedLimit: MAX_LIST_LIMIT,
+      statusFilter: action.statusFilter,
       total: total || collected.length,
     }),
   };
@@ -722,7 +808,7 @@ export async function captureIdeaThroughBroker(
   }
 
   if (action.kind === "listAll") {
-    return await listAllIdeasThroughBroker(config);
+    return await listAllIdeasThroughBroker(config, action);
   }
 
   if (action.kind === "show") {

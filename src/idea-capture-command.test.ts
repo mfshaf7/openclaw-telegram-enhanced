@@ -229,6 +229,42 @@ describe("idea-capture-command", () => {
     expect(result.text).toContain("/idea show idea-38");
   });
 
+  it("treats free-form idea text starting with status as a capture", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        idea_id: "idea-39",
+        record_ref: "openproject://work_packages/39",
+        status: "captured",
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "Status filter proof one",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://broker.internal/v1/ideas/capture");
+    expect(JSON.parse((request as RequestInit).body as string)).toMatchObject({
+      body: "Status filter proof one",
+      title: "Status filter proof one",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toContain("idea-39");
+  });
+
   it("lists captured ideas through the broker with visible statuses", async () => {
     vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
     vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
@@ -347,6 +383,126 @@ describe("idea-capture-command", () => {
     expect(result.text).toContain("idea-41");
     expect(result.text).toContain("idea-42");
     expect(result.text).toContain("parked");
+  });
+
+  it("lists captured ideas through the broker with a status filter", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ideas: [
+          {
+            body_preview: "Need a bounded read path.",
+            idea_id: "idea-41",
+            record_ref: "openproject://work_packages/41",
+            status: "captured",
+            title: "Bounded read path",
+          },
+        ],
+        page: {
+          count: 1,
+          has_more: false,
+          limit: 10,
+          next_offset: null,
+          offset: 1,
+          total: 1,
+        },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "list status captured",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://broker.internal/v1/ideas?limit=10&offset=1&status=captured",
+    );
+    expect(result.text).toContain("Stored ideas with status captured");
+    expect(result.text).toContain("idea-41");
+  });
+
+  it("lists all stored ideas through broker pagination with a status filter", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ideas: [
+            {
+              idea_id: "idea-41",
+              status: "captured",
+              title: "Bounded read path",
+              updated_at: "2026-04-18T10:05:00Z",
+            },
+          ],
+          page: {
+            count: 1,
+            has_more: true,
+            limit: 25,
+            next_offset: 2,
+            offset: 1,
+            total: 2,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ideas: [
+            {
+              idea_id: "idea-42",
+              status: "captured",
+              title: "Governed backlog view",
+              updated_at: "2026-04-18T10:06:00Z",
+            },
+          ],
+          page: {
+            count: 1,
+            has_more: false,
+            limit: 25,
+            next_offset: null,
+            offset: 2,
+            total: 2,
+          },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "list all status captured",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://broker.internal/v1/ideas?limit=25&offset=1&status=captured",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://broker.internal/v1/ideas?limit=25&offset=2&status=captured",
+    );
+    expect(result.text).toContain("Stored ideas with status captured: showing all 2");
+    expect(result.text).toContain("idea-41");
+    expect(result.text).toContain("idea-42");
   });
 
   it("reads one captured idea through the broker with explicit status", async () => {

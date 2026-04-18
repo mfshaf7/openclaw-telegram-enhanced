@@ -76,6 +76,7 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
             "use `/idea <text>` to capture a new idea",
             "use `/idea list` to review the recent idea slice",
             "use `/idea list all` to review every stored idea through broker pagination",
+            "use `/idea list status <status>` to review one status slice such as `captured` or `parked`",
           ],
         },
         purpose:

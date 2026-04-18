@@ -77,6 +77,12 @@ Supported commands:
   - show the recent bounded idea slice
 - `/idea list all`
   - show the full stored idea backlog through broker pagination
+- `/idea list status <status>`
+  - show the recent bounded idea slice filtered by one canonical lifecycle
+    status such as `captured` or `parked`
+- `/idea list all status <status>`
+  - show the full stored idea backlog filtered by one canonical lifecycle
+    status
 - `/idea show <idea-id>`
   - show one stored idea record by canonical broker idea id such as
     `idea-41`
