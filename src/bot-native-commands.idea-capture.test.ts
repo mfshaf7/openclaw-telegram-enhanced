@@ -58,21 +58,25 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
       ok: true,
       json: async () => ({
         operator_guidance: {
+          after_capture: [
+            "each reply includes the canonical idea id, record reference, and current status",
+          ],
           examples: [
             "We need a governed place to capture deferred architecture ideas before they become Git artifacts",
           ],
           what_to_send: [
-            "the idea itself or the problem worth tracking",
+            "use `/idea <text>` to capture a new idea",
+            "use `/idea list` to review recent idea records",
           ],
         },
         purpose:
-          "Capture a concrete idea or problem statement into Workspace Proposals before triage and ownership decisions.",
+          "Create, inspect, and list canonical idea records in Workspace Proposals through the broker-owned operator workflow path.",
         source_hints: {
           telegram: {
-            invocation_examples: ["/idea <idea text>", "/idea help"],
+            invocation_examples: ["/idea <idea text>", "/idea list", "/idea show <idea-id>", "/idea help"],
           },
         },
-        title: "Idea capture",
+        title: "Idea workflow",
       }),
     }));
     vi.stubGlobal("fetch", fetchMock);
@@ -93,10 +97,11 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, request] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://broker.internal/v1/workflows/idea-capture");
+    expect(url).toBe("http://broker.internal/v1/workflows/idea-command");
     expect((request as RequestInit).method).toBe("GET");
     const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
-    expect(replyPayload?.replies?.[0]?.text).toContain("Idea capture");
+    expect(replyPayload?.replies?.[0]?.text).toContain("Idea workflow");
     expect(replyPayload?.replies?.[0]?.text).toContain("/idea <idea text>");
+    expect(replyPayload?.replies?.[0]?.text).toContain("/idea list");
   });
 });
