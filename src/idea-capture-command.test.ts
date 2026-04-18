@@ -32,8 +32,25 @@ describe("idea-capture-command", () => {
       telegramChatId: 100,
     });
 
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain("Usage: /idea <text>");
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toContain("Use /idea to capture a concrete idea");
+    expect(result.text).toContain("/idea help");
+  });
+
+  it("returns the usage guide when help is requested explicitly", async () => {
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 2,
+      rawArgs: "help",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toContain("Format:");
+    expect(result.text).toContain("Examples:");
   });
 
   it("captures an idea through the broker and returns the canonical record ref", async () => {
