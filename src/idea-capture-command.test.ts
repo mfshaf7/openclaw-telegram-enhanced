@@ -44,6 +44,16 @@ describe("idea-capture-command", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       json: async () => ({
+        lifecycle_note:
+          "The canonical backlog supports the full status model now. Telegram currently exposes capture, list, list all, and show; later status moves remain broker and backlog managed until triage and decision actions are enabled.",
+        lifecycle_statuses: [
+          {
+            meaning: "Raw record exists, but no approved triage or ownership decision exists yet.",
+            next_step:
+              "Review the captured record, then move it into triage or park it in the canonical backlog.",
+            status: "captured",
+          },
+        ],
         operator_guidance: {
           after_capture: [
             "each reply includes the canonical idea id, record reference, and current status",
@@ -53,15 +63,26 @@ describe("idea-capture-command", () => {
           ],
           what_to_send: [
             "use `/idea <text>` to capture a new idea",
-            "use `/idea list` to review recent idea records",
+            "use `/idea list` to review the recent idea slice",
+            "use `/idea list all` to review every stored idea through broker pagination",
           ],
         },
         purpose:
           "Create, inspect, and list canonical idea records in Workspace Proposals through the broker-owned operator workflow path.",
         source_hints: {
           telegram: {
-            invocation_examples: ["/idea <idea text>", "/idea list", "/idea show <idea-id>", "/idea help"],
-            note: "Use `/idea <text>` to capture a new idea. Use `/idea list` and `/idea show <idea-id>` to read what is already stored.",
+            command_descriptors: [
+              {
+                invocation: "/idea <idea text>",
+                purpose: "Capture a new idea into the canonical backlog.",
+              },
+              {
+                invocation: "/idea list all",
+                purpose: "Show the full stored idea backlog through broker pagination.",
+              },
+            ],
+            invocation_examples: ["/idea <idea text>", "/idea list", "/idea list all", "/idea show <idea-id>", "/idea help"],
+            note: "Use `/idea <text>` to capture a new idea. Use `/idea list`, `/idea list all`, and `/idea show <idea-id>` to read what is already stored.",
           },
         },
         title: "Idea workflow",
@@ -86,8 +107,9 @@ describe("idea-capture-command", () => {
     expect(result.isError).toBeUndefined();
     expect(result.text).toContain("Idea workflow");
     expect(result.text).toContain("/idea <idea text>");
-    expect(result.text).toContain("/idea list");
-    expect(result.text).toContain("Available actions:");
+    expect(result.text).toContain("/idea list all");
+    expect(result.text).toContain("Status lifecycle:");
+    expect(result.text).toContain("captured");
   });
 
   it("loads workflow guidance from the broker when help is requested explicitly", async () => {
@@ -98,6 +120,14 @@ describe("idea-capture-command", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       json: async () => ({
+        lifecycle_statuses: [
+          {
+            meaning: "Raw record exists, but no approved triage or ownership decision exists yet.",
+            next_step:
+              "Review the captured record, then move it into triage or park it in the canonical backlog.",
+            status: "captured",
+          },
+        ],
         operator_guidance: {
           after_capture: [
             "each reply includes the canonical idea id, record reference, and current status",
@@ -106,7 +136,13 @@ describe("idea-capture-command", () => {
         },
         source_hints: {
           telegram: {
-            invocation_examples: ["/idea <idea text>", "/idea list", "/idea show <idea-id>", "/idea help"],
+            command_descriptors: [
+              {
+                invocation: "/idea help",
+                purpose: "Show the canonical workflow guidance and lifecycle status model.",
+              },
+            ],
+            invocation_examples: ["/idea <idea text>", "/idea list", "/idea list all", "/idea show <idea-id>", "/idea help"],
           },
         },
         title: "Idea workflow",
@@ -126,7 +162,8 @@ describe("idea-capture-command", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.isError).toBeUndefined();
-    expect(result.text).toContain("What you will see back:");
+    expect(result.text).toContain("Current command surface:");
+    expect(result.text).toContain("Status lifecycle:");
     expect(result.text).toContain("/idea help");
     expect(result.text).toContain("/idea show <idea-id>");
   });
@@ -235,9 +272,81 @@ describe("idea-capture-command", () => {
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toBe("http://broker.internal/v1/ideas?limit=10&offset=1");
     expect((request as RequestInit).method).toBe("GET");
-    expect(result.text).toContain("Ideas 1-1 of 1");
-    expect(result.text).toContain("idea-41 [captured]");
+    expect(result.text).toContain("Stored ideas: showing 1-1 of 1");
+    expect(result.text).toContain("Idea ID");
+    expect(result.text).toContain("idea-41");
+    expect(result.text).toContain("captured");
     expect(result.text).toContain("/idea show <idea-id>");
+  });
+
+  it("lists all stored ideas through broker pagination", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ideas: [
+            {
+              idea_id: "idea-41",
+              status: "captured",
+              title: "Bounded read path",
+              updated_at: "2026-04-18T10:05:00Z",
+            },
+          ],
+          page: {
+            count: 1,
+            has_more: true,
+            limit: 25,
+            next_offset: 2,
+            offset: 1,
+            total: 2,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ideas: [
+            {
+              idea_id: "idea-42",
+              status: "parked",
+              title: "Governed backlog view",
+              updated_at: "2026-04-18T10:06:00Z",
+            },
+          ],
+          page: {
+            count: 1,
+            has_more: false,
+            limit: 25,
+            next_offset: null,
+            offset: 2,
+            total: 2,
+          },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "list all",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://broker.internal/v1/ideas?limit=25&offset=1");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://broker.internal/v1/ideas?limit=25&offset=2");
+    expect(result.text).toContain("Stored ideas: showing all 2");
+    expect(result.text).toContain("idea-41");
+    expect(result.text).toContain("idea-42");
+    expect(result.text).toContain("parked");
   });
 
   it("reads one captured idea through the broker with explicit status", async () => {
@@ -277,8 +386,9 @@ describe("idea-capture-command", () => {
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toBe("http://broker.internal/v1/ideas/idea-41");
     expect((request as RequestInit).method).toBe("GET");
-    expect(result.text).toContain("idea-41 [captured]");
-    expect(result.text).toContain("Record: openproject://work_packages/41");
-    expect(result.text).toContain("Source: telegram/default");
+    expect(result.text).toContain("Idea record:");
+    expect(result.text).toContain("Record");
+    expect(result.text).toContain("openproject://work_packages/41");
+    expect(result.text).toContain("telegram/default");
   });
 });

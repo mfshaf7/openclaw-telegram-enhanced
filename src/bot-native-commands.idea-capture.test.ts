@@ -57,6 +57,14 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       json: async () => ({
+        lifecycle_statuses: [
+          {
+            meaning: "Raw record exists, but no approved triage or ownership decision exists yet.",
+            next_step:
+              "Review the captured record, then move it into triage or park it in the canonical backlog.",
+            status: "captured",
+          },
+        ],
         operator_guidance: {
           after_capture: [
             "each reply includes the canonical idea id, record reference, and current status",
@@ -66,14 +74,25 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
           ],
           what_to_send: [
             "use `/idea <text>` to capture a new idea",
-            "use `/idea list` to review recent idea records",
+            "use `/idea list` to review the recent idea slice",
+            "use `/idea list all` to review every stored idea through broker pagination",
           ],
         },
         purpose:
           "Create, inspect, and list canonical idea records in Workspace Proposals through the broker-owned operator workflow path.",
         source_hints: {
           telegram: {
-            invocation_examples: ["/idea <idea text>", "/idea list", "/idea show <idea-id>", "/idea help"],
+            command_descriptors: [
+              {
+                invocation: "/idea <idea text>",
+                purpose: "Capture a new idea into the canonical backlog.",
+              },
+              {
+                invocation: "/idea list all",
+                purpose: "Show the full stored idea backlog through broker pagination.",
+              },
+            ],
+            invocation_examples: ["/idea <idea text>", "/idea list", "/idea list all", "/idea show <idea-id>", "/idea help"],
           },
         },
         title: "Idea workflow",
@@ -102,6 +121,7 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
     const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
     expect(replyPayload?.replies?.[0]?.text).toContain("Idea workflow");
     expect(replyPayload?.replies?.[0]?.text).toContain("/idea <idea text>");
-    expect(replyPayload?.replies?.[0]?.text).toContain("/idea list");
+    expect(replyPayload?.replies?.[0]?.text).toContain("/idea list all");
+    expect(replyPayload?.replies?.[0]?.text).toContain("Status lifecycle:");
   });
 });

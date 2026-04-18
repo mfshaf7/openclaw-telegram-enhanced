@@ -15,6 +15,12 @@ type IdeaCommandReply = {
 };
 
 type IdeaWorkflowDescriptor = {
+  lifecycle_note?: string;
+  lifecycle_statuses?: Array<{
+    meaning?: string;
+    next_step?: string;
+    status?: string;
+  }>;
   title?: string;
   purpose?: string;
   operator_guidance?: {
@@ -24,6 +30,10 @@ type IdeaWorkflowDescriptor = {
   };
   source_hints?: {
     telegram?: {
+      command_descriptors?: Array<{
+        invocation?: string;
+        purpose?: string;
+      }>;
       help_invocation?: string;
       invocation_examples?: string[];
       note?: string;
@@ -79,6 +89,7 @@ type IdeaCommandAction =
   | { kind: "help" }
   | { kind: "capture"; rawText: string }
   | { kind: "list"; limit: number; offset: number }
+  | { kind: "listAll" }
   | { kind: "show"; ideaId: string };
 
 function trimEnv(name: string, env = process.env): string {
@@ -128,7 +139,33 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
   const parts = rawText.split(/\s+/).filter(Boolean);
   const subcommand = parts[0]?.toLowerCase() ?? "";
 
+  if (subcommand === "all") {
+    if (parts.length > 1) {
+      return {
+        isError: true,
+        text: "Usage: /idea list all",
+      };
+    }
+
+    return {
+      kind: "listAll",
+    };
+  }
+
   if (subcommand === "list" || subcommand === "ls") {
+    if (parts[1]?.toLowerCase() === "all") {
+      if (parts.length > 2) {
+        return {
+          isError: true,
+          text: "Usage: /idea list all",
+        };
+      }
+
+      return {
+        kind: "listAll",
+      };
+    }
+
     if (parts.length > 3) {
       return {
         isError: true,
@@ -278,15 +315,66 @@ function renderIdeaWorkflowGuidance(descriptor: IdeaWorkflowDescriptor): string 
 
   const telegramHints = descriptor.source_hints?.telegram;
   const invocationExamples = telegramHints?.invocation_examples?.filter(Boolean) ?? [];
-  if (invocationExamples.length > 0) {
-    lines.push("", "Usage:");
-    for (const example of invocationExamples) {
-      lines.push(example);
+  const commandDescriptors = telegramHints?.command_descriptors?.filter(
+    (entry) => entry?.invocation?.trim() && entry?.purpose?.trim(),
+  ) ?? [];
+  if (commandDescriptors.length > 0) {
+    lines.push(
+      "",
+      "Current command surface:",
+      renderCodeTable(
+        ["Command", "Purpose"],
+        commandDescriptors.map((entry) => [
+          entry.invocation?.trim() ?? "",
+          entry.purpose?.trim() ?? "",
+        ]),
+        [24, 72],
+      ),
+    );
+    const coveredInvocations = new Set(
+      commandDescriptors.map((entry) => entry.invocation?.trim()).filter(Boolean),
+    );
+    const additionalInvocations = invocationExamples.filter((example) => !coveredInvocations.has(example));
+    if (additionalInvocations.length > 0) {
+      lines.push("", "Additional invocations:");
+      for (const example of additionalInvocations) {
+        lines.push(example);
+      }
+    }
+  } else {
+    if (invocationExamples.length > 0) {
+      lines.push("", "Usage:");
+      for (const example of invocationExamples) {
+        lines.push(example);
+      }
     }
   }
 
   if (telegramHints?.note?.trim()) {
     lines.push("", telegramHints.note.trim());
+  }
+
+  const lifecycleStatuses = descriptor.lifecycle_statuses?.filter(
+    (entry) => entry?.status?.trim() && entry?.meaning?.trim(),
+  ) ?? [];
+  if (lifecycleStatuses.length > 0) {
+    lines.push(
+      "",
+      "Status lifecycle:",
+      renderCodeTable(
+        ["Status", "Meaning", "How it moves forward"],
+        lifecycleStatuses.map((entry) => [
+          entry.status?.trim() ?? "",
+          entry.meaning?.trim() ?? "",
+          entry.next_step?.trim() ?? "",
+        ]),
+        [14, 40, 54],
+      ),
+    );
+  }
+
+  if (descriptor.lifecycle_note?.trim()) {
+    lines.push("", descriptor.lifecycle_note.trim());
   }
 
   const whatToSend = descriptor.operator_guidance?.what_to_send?.filter(Boolean) ?? [];
@@ -316,57 +404,126 @@ function renderIdeaWorkflowGuidance(descriptor: IdeaWorkflowDescriptor): string 
   return lines.join("\n");
 }
 
+function sanitizeTableCell(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/`/g, "'").trim();
+}
+
+function compactTimestamp(rawValue: string): string {
+  const trimmed = rawValue.trim();
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?(?:\.\d+)?Z$/);
+  if (match) {
+    return `${match[1]} ${match[2]}Z`;
+  }
+
+  return sanitizeTableCell(trimmed);
+}
+
+function padCell(value: string, width: number): string {
+  return value.length >= width ? value : `${value}${" ".repeat(width - value.length)}`;
+}
+
+function renderCodeTable(
+  headers: string[],
+  rows: string[][],
+  maxWidths: number[],
+): string {
+  const normalizedRows = rows.map((row) =>
+    row.map((value, index) =>
+      truncate(sanitizeTableCell(value ?? ""), maxWidths[index] ?? 48),
+    ));
+  const widths = headers.map((header, index) => {
+    const rowWidth = Math.max(
+      0,
+      ...normalizedRows.map((row) => row[index]?.length ?? 0),
+    );
+    return Math.max(header.length, Math.min(maxWidths[index] ?? 48, rowWidth));
+  });
+
+  const formatRow = (row: string[]) =>
+    row
+      .map((value, index) => padCell(value ?? "", widths[index] ?? 1))
+      .join(" | ");
+
+  return [
+    "```text",
+    formatRow(headers),
+    widths.map((width) => "-".repeat(width)).join("-|-"),
+    ...normalizedRows.map((row) => formatRow(row)),
+    "```",
+  ].join("\n");
+}
+
 function formatIdeaRecord(record: IdeaRecordProjection): string {
   const ideaId = record.idea_id?.trim() || "unknown";
   const status = record.status?.trim() || "unknown";
   const recordRef = record.record_ref?.trim() || "record-ref-unavailable";
   const title = record.title?.trim() || "Untitled idea";
   const body = record.body?.trim() || "_No body stored._";
-  const updatedAt = record.updated_at?.trim() || record.created_at?.trim() || "unknown";
+  const updatedAt = compactTimestamp(record.updated_at?.trim() || record.created_at?.trim() || "unknown");
   const sourceSurface = record.source?.surface?.trim() || "unknown";
   const integrationId = record.source?.integration_id?.trim() || "default";
 
   return [
-    `${ideaId} [${status}]`,
+    "Idea record:",
+    renderCodeTable(
+      ["Field", "Value"],
+      [
+        ["Idea ID", ideaId],
+        ["Status", status],
+        ["Record", recordRef],
+        ["Updated", updatedAt],
+        ["Source", `${sourceSurface}/${integrationId}`],
+      ],
+      [14, 86],
+    ),
+    "",
     `Title: ${title}`,
-    `Record: ${recordRef}`,
-    `Updated: ${updatedAt}`,
-    `Source: ${sourceSurface}/${integrationId}`,
     "",
     "Body:",
     body,
+    "",
+    `Review the backlog: /idea list`,
   ].join("\n");
 }
 
-function formatIdeaList(payload: IdeaListResponse, requestedLimit: number): string {
-  const ideas = Array.isArray(payload.ideas) ? payload.ideas : [];
-  const page = payload.page ?? {};
+function formatIdeaList(
+  ideas: IdeaListResponse["ideas"],
+  options: {
+    mode: "recent" | "all";
+    nextOffset?: number | null;
+    offset: number;
+    requestedLimit: number;
+    total: number;
+  },
+): string {
+  const normalizedIdeas = Array.isArray(ideas) ? ideas : [];
 
-  if (ideas.length === 0) {
+  if (normalizedIdeas.length === 0) {
     return "No submitted ideas found.";
   }
 
-  const offset = typeof page.offset === "number" ? page.offset : 1;
-  const total = typeof page.total === "number" ? page.total : ideas.length;
-  const count = typeof page.count === "number" ? page.count : ideas.length;
+  const count = normalizedIdeas.length;
   const lines = [
-    `Ideas ${offset}-${offset + count - 1} of ${total}`,
+    options.mode === "all"
+      ? `Stored ideas: showing all ${options.total}`
+      : `Stored ideas: showing ${options.offset}-${options.offset + count - 1} of ${options.total}`,
+    renderCodeTable(
+      ["Idea ID", "Status", "Updated", "Title"],
+      normalizedIdeas.map((idea) => [
+        idea.idea_id?.trim() || "unknown",
+        idea.status?.trim() || "unknown",
+        compactTimestamp(idea.updated_at?.trim() || "unknown"),
+        idea.title?.trim() || "Untitled idea",
+      ]),
+      [10, 14, 17, 52],
+    ),
   ];
-
-  for (const idea of ideas) {
-    const ideaId = idea.idea_id?.trim() || "unknown";
-    const status = idea.status?.trim() || "unknown";
-    const title = idea.title?.trim() || "Untitled idea";
-    const bodyPreview = idea.body_preview?.trim();
-    lines.push(
-      `- ${ideaId} [${status}] ${title}${bodyPreview ? `\n  ${bodyPreview}` : ""}`,
-    );
-  }
 
   lines.push("", "Details: /idea show <idea-id>");
 
-  if (page.has_more === true && typeof page.next_offset === "number") {
-    lines.push(`More: /idea list ${requestedLimit} ${page.next_offset}`);
+  if (options.mode === "recent" && typeof options.nextOffset === "number") {
+    lines.push(`More: /idea list ${options.requestedLimit} ${options.nextOffset}`);
+    lines.push("Everything: /idea list all");
   }
 
   return lines.join("\n");
@@ -388,7 +545,75 @@ async function listIdeasThroughBroker(
   }
 
   return {
-    text: formatIdeaList(payload as IdeaListResponse, action.limit),
+    text: formatIdeaList((payload as IdeaListResponse).ideas, {
+      mode: "recent",
+      nextOffset:
+        typeof (payload as IdeaListResponse).page?.next_offset === "number"
+          ? (payload as IdeaListResponse).page?.next_offset ?? null
+          : null,
+      offset:
+        typeof (payload as IdeaListResponse).page?.offset === "number"
+          ? (payload as IdeaListResponse).page?.offset ?? 1
+          : 1,
+      requestedLimit: action.limit,
+      total:
+        typeof (payload as IdeaListResponse).page?.total === "number"
+          ? (payload as IdeaListResponse).page?.total ?? 0
+          : Array.isArray((payload as IdeaListResponse).ideas)
+            ? (payload as IdeaListResponse).ideas?.length ?? 0
+            : 0,
+    }),
+  };
+}
+
+async function listAllIdeasThroughBroker(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+): Promise<IdeaCommandReply> {
+  const collected: NonNullable<IdeaListResponse["ideas"]> = [];
+  let offset = 1;
+  let total = 0;
+  const seenOffsets = new Set<number>();
+
+  while (true) {
+    if (seenOffsets.has(offset)) {
+      return {
+        isError: true,
+        text: "Idea list all failed: broker pagination did not advance cleanly.",
+      };
+    }
+    seenOffsets.add(offset);
+
+    const payload = await performBrokerRequest(config, {
+      errorPrefix: "Idea list failed",
+      fallbackMessage: "Broker rejected the idea list request.",
+      method: "GET",
+      path: `/v1/ideas?limit=${MAX_LIST_LIMIT}&offset=${offset}`,
+    });
+
+    if ("text" in payload) {
+      return payload;
+    }
+
+    const response = payload as IdeaListResponse;
+    const page = response.page ?? {};
+    const pageIdeas = Array.isArray(response.ideas) ? response.ideas : [];
+    collected.push(...pageIdeas);
+    total = typeof page.total === "number" ? page.total : collected.length;
+
+    if (page.has_more !== true || typeof page.next_offset !== "number") {
+      break;
+    }
+
+    offset = page.next_offset;
+  }
+
+  return {
+    text: formatIdeaList(collected, {
+      mode: "all",
+      offset: 1,
+      requestedLimit: MAX_LIST_LIMIT,
+      total: total || collected.length,
+    }),
   };
 }
 
@@ -494,6 +719,10 @@ export async function captureIdeaThroughBroker(
 
   if (action.kind === "list") {
     return await listIdeasThroughBroker(config, action);
+  }
+
+  if (action.kind === "listAll") {
+    return await listAllIdeasThroughBroker(config);
   }
 
   if (action.kind === "show") {

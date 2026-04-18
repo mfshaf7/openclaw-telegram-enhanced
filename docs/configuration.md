@@ -61,12 +61,18 @@ Current phase-1 contract:
   - loads a bounded list of recent idea records through the broker
   - surfaces canonical idea ids and statuses without leaking OpenProject
     collection semantics into Telegram
+- `/idea list all`
+  - stitches broker pagination into a full backlog view for operators who need
+    the complete stored idea set
+  - still relies on broker-owned projections instead of exposing raw
+    OpenProject collection objects
 - `/idea show <idea-id>`
   - loads one broker-owned idea projection
   - surfaces the canonical status and stored record details for that idea id
 - `/idea help`
   - loads the canonical `idea-command` workflow descriptor from `operator-orchestration-service`
-  - renders broker-owned semantics into Telegram-friendly text
+  - renders broker-owned semantics, lifecycle statuses, and operator-forward
+    guidance into Telegram-friendly text
   - must not fall back to Telegram-local workflow truth if the broker is unavailable
 
 Expected runtime env vars for the thin adapter:
