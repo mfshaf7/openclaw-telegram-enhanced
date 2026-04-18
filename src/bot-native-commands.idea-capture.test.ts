@@ -49,12 +49,32 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
     expect(replyPayload?.replies?.[0]?.text).toContain("idea-39");
   });
 
-  it("returns usage guidance for /idea help without calling the broker", async () => {
+  it("loads /idea help guidance from the broker", async () => {
     vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
     vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
     vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
 
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        operator_guidance: {
+          examples: [
+            "We need a governed place to capture deferred architecture ideas before they become Git artifacts",
+          ],
+          what_to_send: [
+            "the idea itself or the problem worth tracking",
+          ],
+        },
+        purpose:
+          "Capture a concrete idea or problem statement into Workspace Proposals before triage and ownership decisions.",
+        source_hints: {
+          telegram: {
+            invocation_examples: ["/idea <idea text>", "/idea help"],
+          },
+        },
+        title: "Idea capture",
+      }),
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     const harness = createNativeCommandsHarness({
@@ -71,9 +91,12 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
       ctx,
     );
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://broker.internal/v1/workflows/idea-capture");
+    expect((request as RequestInit).method).toBe("GET");
     const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
-    expect(replyPayload?.replies?.[0]?.text).toContain("Use /idea to capture a concrete idea");
+    expect(replyPayload?.replies?.[0]?.text).toContain("Idea capture");
     expect(replyPayload?.replies?.[0]?.text).toContain("/idea <idea text>");
   });
 });
