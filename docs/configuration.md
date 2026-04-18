@@ -57,8 +57,15 @@ Current phase-1 contract:
   - captures the idea through `operator-orchestration-service`
   - does not hold OpenProject credentials
   - does not perform backlog workflow logic locally
+- `/idea list`
+  - loads a bounded list of recent idea records through the broker
+  - surfaces canonical idea ids and statuses without leaking OpenProject
+    collection semantics into Telegram
+- `/idea show <idea-id>`
+  - loads one broker-owned idea projection
+  - surfaces the canonical status and stored record details for that idea id
 - `/idea help`
-  - loads the canonical `idea-capture` workflow descriptor from `operator-orchestration-service`
+  - loads the canonical `idea-command` workflow descriptor from `operator-orchestration-service`
   - renders broker-owned semantics into Telegram-friendly text
   - must not fall back to Telegram-local workflow truth if the broker is unavailable
 

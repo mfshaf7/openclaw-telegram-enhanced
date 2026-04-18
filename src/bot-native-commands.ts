@@ -90,7 +90,7 @@ import {
 } from "./platform-operator-command.js";
 import {
   captureIdeaThroughBroker,
-  IDEA_CAPTURE_COMMAND,
+  IDEA_COMMAND,
   isIdeaCaptureConfigured,
 } from "./idea-capture-command.js";
 
@@ -426,7 +426,7 @@ export const registerTelegramNativeCommands = ({
   const localCommands = nativeEnabled
     ? [
         PLATFORM_OPERATOR_COMMAND,
-        ...(isIdeaCaptureConfigured() ? [IDEA_CAPTURE_COMMAND] : []),
+        ...(isIdeaCaptureConfigured() ? [IDEA_COMMAND] : []),
       ]
     : [];
   const pluginCommandSpecs = getPluginCommandSpecs("telegram");
@@ -1035,7 +1035,7 @@ export const registerTelegramNativeCommands = ({
             linkPreview: runtimeTelegramCfg.linkPreview,
           });
           const reply =
-            localCommand.command === IDEA_CAPTURE_COMMAND.command
+            localCommand.command === IDEA_COMMAND.command
               ? await captureIdeaThroughBroker({
                   accountId,
                   chatType: msg.chat.type,

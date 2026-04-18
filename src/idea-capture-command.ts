@@ -1,13 +1,15 @@
-export const IDEA_CAPTURE_COMMAND = {
+export const IDEA_COMMAND = {
   command: "idea",
-  description: "Capture an idea into the Workspace Proposals backlog",
+  description: "Create or inspect idea records in the Workspace Proposals backlog",
 } as const;
 
 const BASE_URL_ENV = "OPERATOR_ORCHESTRATION_BASE_URL";
 const CALLER_ID_ENV = "OPERATOR_ORCHESTRATION_CALLER_ID";
 const CALLER_SECRET_ENV = "OPERATOR_ORCHESTRATION_CALLER_SECRET";
+const DEFAULT_LIST_LIMIT = 10;
+const MAX_LIST_LIMIT = 25;
 
-type IdeaCaptureCommandReply = {
+type IdeaCommandReply = {
   text: string;
   isError?: boolean;
 };
@@ -29,7 +31,40 @@ type IdeaWorkflowDescriptor = {
   };
 };
 
-type CaptureIdeaParams = {
+type IdeaRecordProjection = {
+  body?: string | null;
+  created_at?: string | null;
+  idea_id?: string;
+  record_ref?: string;
+  source?: {
+    surface?: string;
+    integration_id?: string;
+  };
+  status?: string;
+  title?: string;
+  updated_at?: string | null;
+};
+
+type IdeaListResponse = {
+  ideas?: Array<{
+    body_preview?: string | null;
+    idea_id?: string;
+    record_ref?: string;
+    status?: string;
+    title?: string;
+    updated_at?: string | null;
+  }>;
+  page?: {
+    count?: number;
+    has_more?: boolean;
+    limit?: number;
+    next_offset?: number | null;
+    offset?: number;
+    total?: number;
+  };
+};
+
+type IdeaCommandParams = {
   accountId: string;
   chatType: string;
   messageId: number;
@@ -39,6 +74,12 @@ type CaptureIdeaParams = {
   telegramChatId: number;
   telegramThreadId?: number;
 };
+
+type IdeaCommandAction =
+  | { kind: "help" }
+  | { kind: "capture"; rawText: string }
+  | { kind: "list"; limit: number; offset: number }
+  | { kind: "show"; ideaId: string };
 
 function trimEnv(name: string, env = process.env): string {
   return env[name]?.trim() ?? "";
@@ -63,6 +104,74 @@ function isIdeaHelpRequest(rawText: string): boolean {
   const normalized = rawText.trim().toLowerCase();
   return normalized === "help" || normalized === "--help" || normalized === "-h" ||
     normalized === "usage" || normalized === "?";
+}
+
+function parsePositiveInteger(rawValue: string | undefined): number | null {
+  if (!rawValue?.trim()) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(rawValue.trim(), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | IdeaCommandReply {
+  const rawText = rawArgs?.trim() ?? "";
+  if (!rawText || isIdeaHelpRequest(rawText)) {
+    return { kind: "help" };
+  }
+
+  const parts = rawText.split(/\s+/).filter(Boolean);
+  const subcommand = parts[0]?.toLowerCase() ?? "";
+
+  if (subcommand === "list" || subcommand === "ls") {
+    if (parts.length > 3) {
+      return {
+        isError: true,
+        text: "Usage: /idea list [limit] [offset]",
+      };
+    }
+
+    const limit = parts[1] ? parsePositiveInteger(parts[1]) : DEFAULT_LIST_LIMIT;
+    const offset = parts[2] ? parsePositiveInteger(parts[2]) : 1;
+
+    if (!limit || !offset || limit > MAX_LIST_LIMIT) {
+      return {
+        isError: true,
+        text: `Usage: /idea list [limit] [offset]\nLimit must be between 1 and ${MAX_LIST_LIMIT}.`,
+      };
+    }
+
+    return {
+      kind: "list",
+      limit,
+      offset,
+    };
+  }
+
+  if (subcommand === "show" || subcommand === "get" || subcommand === "status") {
+    const ideaId = parts[1]?.trim() ?? "";
+    if (!/^idea-\d+$/i.test(ideaId)) {
+      return {
+        isError: true,
+        text: "Usage: /idea show <idea-id>",
+      };
+    }
+
+    return {
+      kind: "show",
+      ideaId: ideaId.toLowerCase(),
+    };
+  }
+
+  return {
+    kind: "capture",
+    rawText,
+  };
 }
 
 export function isIdeaCaptureConfigured(env = process.env): boolean {
@@ -97,24 +206,36 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
   }
 }
 
-async function fetchIdeaWorkflowDescriptor(
+function buildBrokerHeaders(config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>) {
+  return {
+    "Content-Type": "application/json",
+    "x-oos-caller-id": config.callerId,
+    "x-oos-caller-secret": config.callerSecret,
+  };
+}
+
+async function performBrokerRequest(
   config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
-): Promise<IdeaCaptureCommandReply | IdeaWorkflowDescriptor> {
+  input: {
+    body?: string;
+    errorPrefix: string;
+    fallbackMessage: string;
+    method: "GET" | "POST";
+    path: string;
+  },
+): Promise<IdeaCommandReply | Record<string, unknown>> {
   let response: Response;
 
   try {
-    response = await fetch(`${config.baseUrl}/v1/workflows/idea-capture`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "x-oos-caller-id": config.callerId,
-        "x-oos-caller-secret": config.callerSecret,
-      },
+    response = await fetch(`${config.baseUrl}${input.path}`, {
+      method: input.method,
+      headers: buildBrokerHeaders(config),
+      ...(input.body ? { body: input.body } : {}),
     });
   } catch (error) {
     return {
       isError: true,
-      text: `Idea workflow guidance request failed before reaching the broker: ${String(error)}`,
+      text: `${input.errorPrefix} before reaching the broker: ${String(error)}`,
     };
   }
 
@@ -125,19 +246,30 @@ async function fetchIdeaWorkflowDescriptor(
     const message =
       typeof payload.message === "string" && payload.message
         ? payload.message
-        : "Broker rejected the workflow guidance request.";
+        : input.fallbackMessage;
     return {
       isError: true,
-      text: `Idea workflow guidance failed (${errorCode}): ${message}`,
+      text: `${input.errorPrefix} (${errorCode}): ${message}`,
     };
   }
 
-  return payload as IdeaWorkflowDescriptor;
+  return payload;
+}
+
+async function fetchIdeaWorkflowDescriptor(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+): Promise<IdeaCommandReply | IdeaWorkflowDescriptor> {
+  return await performBrokerRequest(config, {
+    errorPrefix: "Idea workflow guidance failed",
+    fallbackMessage: "Broker rejected the workflow guidance request.",
+    method: "GET",
+    path: "/v1/workflows/idea-command",
+  }) as Promise<IdeaCommandReply | IdeaWorkflowDescriptor>;
 }
 
 function renderIdeaWorkflowGuidance(descriptor: IdeaWorkflowDescriptor): string {
   const lines = [
-    descriptor.title?.trim() || "Idea capture",
+    descriptor.title?.trim() || "Idea workflow",
   ];
 
   if (descriptor.purpose?.trim()) {
@@ -159,7 +291,7 @@ function renderIdeaWorkflowGuidance(descriptor: IdeaWorkflowDescriptor): string 
 
   const whatToSend = descriptor.operator_guidance?.what_to_send?.filter(Boolean) ?? [];
   if (whatToSend.length > 0) {
-    lines.push("", "What to send:");
+    lines.push("", "Available actions:");
     for (const item of whatToSend) {
       lines.push(`- ${item}`);
     }
@@ -175,7 +307,7 @@ function renderIdeaWorkflowGuidance(descriptor: IdeaWorkflowDescriptor): string 
 
   const afterCapture = descriptor.operator_guidance?.after_capture?.filter(Boolean) ?? [];
   if (afterCapture.length > 0) {
-    lines.push("", "After capture:");
+    lines.push("", "What you will see back:");
     for (const item of afterCapture) {
       lines.push(`- ${item}`);
     }
@@ -184,21 +316,172 @@ function renderIdeaWorkflowGuidance(descriptor: IdeaWorkflowDescriptor): string 
   return lines.join("\n");
 }
 
+function formatIdeaRecord(record: IdeaRecordProjection): string {
+  const ideaId = record.idea_id?.trim() || "unknown";
+  const status = record.status?.trim() || "unknown";
+  const recordRef = record.record_ref?.trim() || "record-ref-unavailable";
+  const title = record.title?.trim() || "Untitled idea";
+  const body = record.body?.trim() || "_No body stored._";
+  const updatedAt = record.updated_at?.trim() || record.created_at?.trim() || "unknown";
+  const sourceSurface = record.source?.surface?.trim() || "unknown";
+  const integrationId = record.source?.integration_id?.trim() || "default";
+
+  return [
+    `${ideaId} [${status}]`,
+    `Title: ${title}`,
+    `Record: ${recordRef}`,
+    `Updated: ${updatedAt}`,
+    `Source: ${sourceSurface}/${integrationId}`,
+    "",
+    "Body:",
+    body,
+  ].join("\n");
+}
+
+function formatIdeaList(payload: IdeaListResponse, requestedLimit: number): string {
+  const ideas = Array.isArray(payload.ideas) ? payload.ideas : [];
+  const page = payload.page ?? {};
+
+  if (ideas.length === 0) {
+    return "No submitted ideas found.";
+  }
+
+  const offset = typeof page.offset === "number" ? page.offset : 1;
+  const total = typeof page.total === "number" ? page.total : ideas.length;
+  const count = typeof page.count === "number" ? page.count : ideas.length;
+  const lines = [
+    `Ideas ${offset}-${offset + count - 1} of ${total}`,
+  ];
+
+  for (const idea of ideas) {
+    const ideaId = idea.idea_id?.trim() || "unknown";
+    const status = idea.status?.trim() || "unknown";
+    const title = idea.title?.trim() || "Untitled idea";
+    const bodyPreview = idea.body_preview?.trim();
+    lines.push(
+      `- ${ideaId} [${status}] ${title}${bodyPreview ? `\n  ${bodyPreview}` : ""}`,
+    );
+  }
+
+  lines.push("", "Details: /idea show <idea-id>");
+
+  if (page.has_more === true && typeof page.next_offset === "number") {
+    lines.push(`More: /idea list ${requestedLimit} ${page.next_offset}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function listIdeasThroughBroker(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+  action: Extract<IdeaCommandAction, { kind: "list" }>,
+): Promise<IdeaCommandReply> {
+  const payload = await performBrokerRequest(config, {
+    errorPrefix: "Idea list failed",
+    fallbackMessage: "Broker rejected the idea list request.",
+    method: "GET",
+    path: `/v1/ideas?limit=${action.limit}&offset=${action.offset}`,
+  });
+
+  if ("text" in payload) {
+    return payload;
+  }
+
+  return {
+    text: formatIdeaList(payload as IdeaListResponse, action.limit),
+  };
+}
+
+async function showIdeaThroughBroker(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+  action: Extract<IdeaCommandAction, { kind: "show" }>,
+): Promise<IdeaCommandReply> {
+  const payload = await performBrokerRequest(config, {
+    errorPrefix: "Idea read failed",
+    fallbackMessage: "Broker rejected the idea read request.",
+    method: "GET",
+    path: `/v1/ideas/${action.ideaId}`,
+  });
+
+  if ("text" in payload) {
+    return payload;
+  }
+
+  return {
+    text: formatIdeaRecord(payload as IdeaRecordProjection),
+  };
+}
+
+async function captureIdeaRequest(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+  params: IdeaCommandParams,
+  rawText: string,
+): Promise<IdeaCommandReply> {
+  const payload = await performBrokerRequest(config, {
+    body: JSON.stringify({
+      operator: {
+        id: params.senderId,
+        handle: params.senderUsername,
+      },
+      source: {
+        surface: "telegram",
+        integration_id: params.accountId,
+        context_ref: {
+          conversation_id: String(params.telegramChatId),
+          conversation_type: params.chatType,
+          ...(params.telegramThreadId !== undefined
+            ? {
+                thread_id: String(params.telegramThreadId),
+              }
+            : {}),
+        },
+        native_ref: {
+          command: "idea",
+          message_id: String(params.messageId),
+        },
+      },
+      title: buildIdeaTitle(rawText),
+      body: rawText,
+    }),
+    errorPrefix: "Idea capture failed",
+    fallbackMessage: "Broker rejected the idea capture request.",
+    method: "POST",
+    path: "/v1/ideas/capture",
+  });
+
+  if ("text" in payload) {
+    return payload;
+  }
+
+  const ideaId = typeof payload.idea_id === "string" ? payload.idea_id : "unknown";
+  const recordRef =
+    typeof payload.record_ref === "string" ? payload.record_ref : "record-ref-unavailable";
+  const status = typeof payload.status === "string" ? payload.status : "captured";
+
+  return {
+    text: `Captured ${ideaId} [${status}]\nRecord: ${recordRef}\nReview: /idea show ${ideaId}`,
+  };
+}
+
 export async function captureIdeaThroughBroker(
-  params: CaptureIdeaParams,
-): Promise<IdeaCaptureCommandReply> {
+  params: IdeaCommandParams,
+): Promise<IdeaCommandReply> {
   const config = loadIdeaCaptureConfig();
-  const rawText = params.rawArgs?.trim() ?? "";
 
   if (!config) {
     return {
       isError: true,
       text:
-        "Idea capture is not configured in this runtime. Check OPERATOR_ORCHESTRATION_BASE_URL, OPERATOR_ORCHESTRATION_CALLER_ID, and OPERATOR_ORCHESTRATION_CALLER_SECRET in the gateway environment.",
+        "Idea workflow is not configured in this runtime. Check OPERATOR_ORCHESTRATION_BASE_URL, OPERATOR_ORCHESTRATION_CALLER_ID, and OPERATOR_ORCHESTRATION_CALLER_SECRET in the gateway environment.",
     };
   }
 
-  if (!rawText || isIdeaHelpRequest(rawText)) {
+  const action = parseIdeaCommand(params.rawArgs);
+  if ("text" in action) {
+    return action;
+  }
+
+  if (action.kind === "help") {
     const descriptor = await fetchIdeaWorkflowDescriptor(config);
     if ("text" in descriptor) {
       return descriptor;
@@ -209,68 +492,13 @@ export async function captureIdeaThroughBroker(
     };
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${config.baseUrl}/v1/ideas/capture`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-oos-caller-id": config.callerId,
-        "x-oos-caller-secret": config.callerSecret,
-      },
-      body: JSON.stringify({
-        operator: {
-          id: params.senderId,
-          handle: params.senderUsername,
-        },
-        source: {
-          surface: "telegram",
-          integration_id: params.accountId,
-          context_ref: {
-            conversation_id: String(params.telegramChatId),
-            conversation_type: params.chatType,
-            ...(params.telegramThreadId !== undefined
-              ? {
-                  thread_id: String(params.telegramThreadId),
-                }
-              : {}),
-          },
-          native_ref: {
-            command: "idea",
-            message_id: String(params.messageId),
-          },
-        },
-        title: buildIdeaTitle(rawText),
-        body: rawText,
-      }),
-    });
-  } catch (error) {
-    return {
-      isError: true,
-      text: `Idea capture request failed before reaching the broker: ${String(error)}`,
-    };
+  if (action.kind === "list") {
+    return await listIdeasThroughBroker(config, action);
   }
 
-  const payload = await readJson(response);
-  if (!response.ok) {
-    const errorCode =
-      typeof payload.error === "string" && payload.error ? payload.error : `http_${response.status}`;
-    const message =
-      typeof payload.message === "string" && payload.message
-        ? payload.message
-        : "Broker rejected the idea capture request.";
-    return {
-      isError: true,
-      text: `Idea capture failed (${errorCode}): ${message}`,
-    };
+  if (action.kind === "show") {
+    return await showIdeaThroughBroker(config, action);
   }
 
-  const ideaId = typeof payload.idea_id === "string" ? payload.idea_id : "unknown";
-  const recordRef =
-    typeof payload.record_ref === "string" ? payload.record_ref : "record-ref-unavailable";
-  const status = typeof payload.status === "string" ? payload.status : "captured";
-
-  return {
-    text: `Captured ${ideaId} with status ${status}.\nRecord: ${recordRef}`,
-  };
+  return await captureIdeaRequest(config, params, action.rawText);
 }
