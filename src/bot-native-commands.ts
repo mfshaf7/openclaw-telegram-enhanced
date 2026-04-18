@@ -88,6 +88,11 @@ import {
   buildPlatformOperatorReply,
   PLATFORM_OPERATOR_COMMAND,
 } from "./platform-operator-command.js";
+import {
+  captureIdeaThroughBroker,
+  IDEA_CAPTURE_COMMAND,
+  isIdeaCaptureConfigured,
+} from "./idea-capture-command.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 
@@ -418,7 +423,12 @@ export const registerTelegramNativeCommands = ({
     runtime.error?.(danger(issue.message));
   }
   const customCommands = customResolution.commands;
-  const localCommands = nativeEnabled ? [PLATFORM_OPERATOR_COMMAND] : [];
+  const localCommands = nativeEnabled
+    ? [
+        PLATFORM_OPERATOR_COMMAND,
+        ...(isIdeaCaptureConfigured() ? [IDEA_CAPTURE_COMMAND] : []),
+      ]
+    : [];
   const pluginCommandSpecs = getPluginCommandSpecs("telegram");
   const existingCommands = new Set(
     [
@@ -998,7 +1008,7 @@ export const registerTelegramNativeCommands = ({
           if (!auth) {
             return;
           }
-          const { senderId, isGroup, isForum, resolvedThreadId } = auth;
+          const { senderId, senderUsername, isGroup, isForum, resolvedThreadId } = auth;
           const runtimeContext = await resolveCommandRuntimeContext({
             msg,
             runtimeCfg,
@@ -1024,7 +1034,19 @@ export const registerTelegramNativeCommands = ({
             chunkMode,
             linkPreview: runtimeTelegramCfg.linkPreview,
           });
-          const reply = buildPlatformOperatorReply(ctx.match?.trim());
+          const reply =
+            localCommand.command === IDEA_CAPTURE_COMMAND.command
+              ? await captureIdeaThroughBroker({
+                  accountId,
+                  chatType: msg.chat.type,
+                  messageId: msg.message_id,
+                  rawArgs: ctx.match?.trim(),
+                  senderId,
+                  senderUsername,
+                  telegramChatId: chatId,
+                  telegramThreadId: resolvedThreadId,
+                })
+              : buildPlatformOperatorReply(ctx.match?.trim());
           await deliverReplies({
             replies: [{ text: reply.text, ...(reply.isError ? { isError: true } : {}) }],
             ...deliveryBaseOptions,

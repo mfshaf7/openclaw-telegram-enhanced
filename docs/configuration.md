@@ -17,6 +17,8 @@ This document describes the configuration areas this Telegram replacement should
 - read-only operator surfaces
   - Telegram-native command views that present platform-owned troubleshooting
     inventory without exposing mutating controls or secrets
+  - thin operator workflow capture commands that forward bounded requests to a
+    separate broker service
 
 ## Startup Backlog Control
 
@@ -40,8 +42,27 @@ pending updates, so transient restarts do not silently discard live messages.
 
 - host path policy
 - bridge secrets
+- OpenProject API tokens
+- workflow orchestration or backlog status logic
 - Windows-specific assumptions
 - domain-specific logic that belongs in another plugin
+
+## Broker-Wired Operator Commands
+
+Operator workflow capture commands may exist here only as thin adapters.
+
+Current phase-1 contract:
+
+- `/idea <text>`
+  - captures the idea through `operator-orchestration-service`
+  - does not hold OpenProject credentials
+  - does not perform backlog workflow logic locally
+
+Expected runtime env vars for the thin adapter:
+
+- `OPERATOR_ORCHESTRATION_BASE_URL`
+- `OPERATOR_ORCHESTRATION_CALLER_ID`
+- `OPERATOR_ORCHESTRATION_CALLER_SECRET`
 
 ## Design Rule
 
