@@ -40,6 +40,19 @@ It does not own host policy, bridge enforcement, or environment promotion.
 - Treat approval flows, callback handling, and media send behavior as
   real-operator paths that need stage verification, not just unit tests.
 
+## Review guidelines
+
+For Codex GitHub review, treat the following as `P1` when they plausibly
+regress the Telegram control boundary:
+
+- backend truth, approval logic, or canonical workflow policy leaking into the
+  Telegram layer instead of staying a thin adapter
+- OpenProject or broker credential custody leaking into Telegram code or docs
+- `/platform`, `/idea`, callback, approval, or operator-surface changes that do
+  not update `docs/operator-commands.md` or the owning architecture guidance
+- Telegram runtime changes that weaken stage verification expectations for
+  approval flows, callback handling, or media delivery
+
 ## Validation
 
 - `npm run test:standalone`
