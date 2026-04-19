@@ -59,6 +59,7 @@ checks rather than a dedicated metrics surface.
 - package and repo validation:
   - `npm run test:standalone`
   - `npm run test:bundle`
+  - `npm run validate:repo-docs`
   - `npm run validate:governance-docs`
   - `npm run validate:change-record-requirement`
   - `npm pack` when packaging metadata matters
@@ -102,6 +103,11 @@ npm run test:host-control-contract
 `openclaw-runtime-distribution` should consume this published contract instead
 of grepping private router source text.
 
+For host-control recovery requests, the Telegram layer must also preserve the
+explicit target-bridge selection behavior. When stage and prod share a recovery
+token, recovery requests need `targetProfile` or `bridgeUrl` so the host side
+does not guess the wrong profile.
+
 ## Relationship To The Build Path
 
 This repository is the canonical source.
@@ -135,10 +141,8 @@ Read in this order:
 
 - `openclaw-host-bridge`
   - host enforcement and audit
-- `host-control-openclaw-plugin`
-  - typed host-control tools and plugin contract
 - `openclaw-runtime-distribution`
-  - active gateway composition path
+  - active gateway composition path plus the packaged `host-control-openclaw-plugin` seam
 - `platform-engineering`
   - environment approval and promotion
 - `security-architecture`

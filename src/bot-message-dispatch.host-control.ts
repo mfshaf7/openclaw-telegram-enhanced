@@ -18,11 +18,12 @@ const DEFAULT_HOST_CONTROL_OPERATION_TIMEOUTS_MS: Record<string, number> = {
   "display.screenshot": 20_000,
 };
 
-type HostControlTelegramConfig = {
+export type HostControlTelegramConfig = {
   bridgeUrl: string;
   authTokenEnv: string;
   authToken: string;
   recoveryUrl: string;
+  recoveryTargetProfile?: "prod" | "stage";
   recoveryAuthTokenEnv: string;
   recoveryAuthToken: string;
   timeoutMs: number;
@@ -77,7 +78,16 @@ function deriveRecoveryUrl(bridgeUrl: string): string {
   }
 }
 
-function resolveHostControlTelegramConfig(cfg: OpenClawConfig): HostControlTelegramConfig | null {
+export function deriveRecoveryTargetProfile(bridgeUrl: string): "prod" | "stage" | undefined {
+  try {
+    const url = new URL(bridgeUrl);
+    return url.port === "48731" ? "stage" : "prod";
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveHostControlTelegramConfig(cfg: OpenClawConfig): HostControlTelegramConfig | null {
   const pluginEntry = cfg.plugins?.entries?.["host-control"];
   const pluginCfg =
     pluginEntry?.config && typeof pluginEntry.config === "object" && !Array.isArray(pluginEntry.config)
@@ -101,11 +111,16 @@ function resolveHostControlTelegramConfig(cfg: OpenClawConfig): HostControlTeleg
       ? pluginCfg.recoveryAuthTokenEnv.trim()
       : authTokenEnv;
   const recoveryAuthToken = process.env[recoveryAuthTokenEnv]?.trim() || authToken;
+  const recoveryTargetProfile =
+    pluginCfg.recoveryTargetProfile === "prod" || pluginCfg.recoveryTargetProfile === "stage"
+      ? pluginCfg.recoveryTargetProfile
+      : deriveRecoveryTargetProfile(bridgeUrl);
   return {
     bridgeUrl: bridgeUrl.replace(/\/+$/, ""),
     authTokenEnv,
     authToken,
     recoveryUrl: recoveryUrl.replace(/\/+$/, ""),
+    recoveryTargetProfile,
     recoveryAuthTokenEnv,
     recoveryAuthToken,
     timeoutMs: toPositiveNumber(pluginCfg.timeoutMs, DEFAULT_HOST_CONTROL_TIMEOUT_MS),
@@ -1237,7 +1252,7 @@ function describeDirectReadProposal(intent: DirectReadIntent): string {
     return "Suggested host-control action: use `host_control_health_check` to read the current system and bridge health.";
   }
   if (intent.kind === "host_status") {
-    return "Suggested host-control action: read host-control diagnostics, including bridge, recovery, tmux, pid, and auth status.";
+    return "Suggested host-control action: read host-control diagnostics, including bridge, recovery, supervisor, pid, and auth status.";
   }
   if (intent.kind === "discover") {
     return "Suggested host-control action: use `host_control_discover_host_locations` to read available drives and top-level profile folders.";
@@ -1607,6 +1622,17 @@ async function callHostControlBridgeDirect(
   }
 }
 
+export function buildHostControlRecoveryRequestBody(
+  config: HostControlTelegramConfig,
+  payload: Record<string, unknown>,
+) {
+  return {
+    ...payload,
+    ...(config.recoveryTargetProfile ? { targetProfile: config.recoveryTargetProfile } : {}),
+    bridgeUrl: config.bridgeUrl,
+  };
+}
+
 async function callHostControlRecoveryDirect(
   config: HostControlTelegramConfig,
   payload: Record<string, unknown>,
@@ -1619,6 +1645,7 @@ async function callHostControlRecoveryDirect(
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.recoveryTimeoutMs || 20_000);
+  const requestBody = buildHostControlRecoveryRequestBody(config, payload);
   try {
     const response = await fetch(`${config.recoveryUrl}/v1/self-heal`, {
       method: "POST",
@@ -1626,7 +1653,7 @@ async function callHostControlRecoveryDirect(
         "content-type": "application/json",
         authorization: `Bearer ${config.recoveryAuthToken}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
     const json = await response.json().catch(() => ({}));
@@ -1657,7 +1684,7 @@ function formatRecoveryStepSummary(step: Record<string, unknown>): string {
   return `- ${label}: failed${error}`;
 }
 
-function formatRecoveryDiagnosticsText(result: Record<string, unknown>, heading: string): string {
+export function formatRecoveryDiagnosticsText(result: Record<string, unknown>, heading: string): string {
   const summary = result?.summary && typeof result.summary === "object" ? (result.summary as Record<string, unknown>) : {};
   const diagnostics =
     result?.diagnostics && typeof result.diagnostics === "object" ? (result.diagnostics as Record<string, unknown>) : {};
@@ -1669,6 +1696,12 @@ function formatRecoveryDiagnosticsText(result: Record<string, unknown>, heading:
     diagnostics.sessions && typeof diagnostics.sessions === "object" ? (diagnostics.sessions as Record<string, unknown>) : {};
   const pids = diagnostics.pids && typeof diagnostics.pids === "object" ? (diagnostics.pids as Record<string, unknown>) : {};
   const auth = diagnostics.auth && typeof diagnostics.auth === "object" ? (diagnostics.auth as Record<string, unknown>) : {};
+  const targetProfile =
+    typeof result.targetProfile === "string"
+      ? result.targetProfile
+      : typeof diagnostics.targetProfile === "string"
+        ? diagnostics.targetProfile
+        : null;
   const bridgeSession =
     sessions.bridge && typeof sessions.bridge === "object" ? (sessions.bridge as Record<string, unknown>) : {};
   const recoverySession =
@@ -1693,6 +1726,7 @@ function formatRecoveryDiagnosticsText(result: Record<string, unknown>, heading:
       : `down${typeof bridge.error === "string" && bridge.error.trim() ? `: ${bridge.error.trim()}` : ""}`;
   return [
     heading,
+    ...(targetProfile ? [`Target profile: \`${targetProfile}\``] : []),
     `Overall: ${summary.healthy === true ? "healthy" : "degraded"}`,
     `Bridge: ${bridgeState}`,
     `Recovery: ${recovery.ok === true ? "ok" : "degraded"} on \`${String(recovery.host ?? "0.0.0.0")}:${String(recovery.port ?? "")}\``,
