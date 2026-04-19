@@ -61,18 +61,44 @@ Current phase-1 contract:
   - captures the idea through `operator-orchestration-service`
   - does not hold OpenProject credentials
   - does not perform backlog workflow logic locally
+- `/idea triage <idea-id> <summary>`
+  - records operator-authored framing through the broker
+  - keeps the phone-friendly triage step usable without a live desktop Codex
+    session
+  - does not implement AI suggestion logic locally
+- `/idea decide <idea-id> <parked|accepted|rejected> <notes>`
+  - records the first bounded durable outcome through the broker
+  - keeps decision semantics in the broker instead of inventing Telegram-local
+    backlog state rules
+  - does not expose `owner-assigned` until the broker and workspace contracts
+    have an explicit owner vocabulary
+- `/idea triage discuss <idea-id>`
+  - is reserved for a future AI-assisted broker path
+  - currently returns a local not-implemented message instead of inventing a
+    Telegram-owned AI workflow
 - `/idea list`
   - loads a bounded list of recent idea records through the broker
   - surfaces canonical idea ids and statuses without leaking OpenProject
     collection semantics into Telegram
 - `/idea list all`
   - stitches broker pagination into a full backlog view for operators who need
-    the complete stored idea set
+  the complete stored idea set
+  - still relies on broker-owned projections instead of exposing raw
+    OpenProject collection objects
+- `/idea list status <status>`
+  - loads a bounded broker-owned list slice filtered by one canonical lifecycle
+    status
+  - keeps status-filter semantics in the broker instead of inventing
+    Telegram-local backlog filtering
+- `/idea list all status <status>`
+  - stitches broker pagination into a full status-filtered backlog view
   - still relies on broker-owned projections instead of exposing raw
     OpenProject collection objects
 - `/idea show <idea-id>`
   - loads one broker-owned idea projection
-  - surfaces the canonical status and stored record details for that idea id
+  - surfaces the canonical status, triage summary, operator decision notes, and
+    any internal evaluation metadata already stored by the broker for that idea
+    id
 - `/idea help`
   - loads the canonical `idea-command` workflow descriptor from `operator-orchestration-service`
   - renders broker-owned semantics, lifecycle statuses, and operator-forward
