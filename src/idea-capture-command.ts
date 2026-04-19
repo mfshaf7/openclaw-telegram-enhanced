@@ -199,10 +199,16 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
 
     const ideaId = parts[1]?.trim() ?? "";
     const summary = parts.slice(2).join(" ").trim();
-    if (!/^idea-\d+$/i.test(ideaId) || !summary) {
+    if (!/^idea-\d+$/i.test(ideaId)) {
       return {
         isError: true,
         text: "Usage: /idea triage <idea-id> <summary>",
+      };
+    }
+    if (!summary) {
+      return {
+        isError: true,
+        text: "Incomplete command. Add a triage summary after the idea id.\nUsage: /idea triage <idea-id> <summary>",
       };
     }
 
@@ -222,12 +228,25 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
       };
     }
 
+    const usageText = "Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>";
     const decisionStatus = parts[2]?.trim().toLowerCase() ?? "";
     const notes = parts.slice(3).join(" ").trim();
-    if (!IDEA_DECISION_STATUSES.has(decisionStatus) || !notes) {
+    if (!decisionStatus) {
       return {
         isError: true,
-        text: "Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>",
+        text: `Incomplete command. Add a decision status and notes.\n${usageText}`,
+      };
+    }
+    if (!IDEA_DECISION_STATUSES.has(decisionStatus)) {
+      return {
+        isError: true,
+        text: `Unsupported decision status \`${decisionStatus}\`. Use \`parked\`, \`accepted\`, or \`rejected\`.\n${usageText}`,
+      };
+    }
+    if (!notes) {
+      return {
+        isError: true,
+        text: `Incomplete command. Add decision notes after \`${decisionStatus}\`.\n${usageText}`,
       };
     }
 

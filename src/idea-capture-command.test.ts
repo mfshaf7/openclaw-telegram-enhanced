@@ -289,6 +289,32 @@ describe("idea-capture-command", () => {
     expect(result.text).toContain("Summary: Needs a bounded broker workflow before later decision handling.");
   });
 
+  it("returns a specific incomplete-command error when /idea triage is missing the summary", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "triage idea-41",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain(
+      "Incomplete command. Add a triage summary after the idea id.",
+    );
+    expect(result.text).toContain("Usage: /idea triage <idea-id> <summary>");
+  });
+
   it("records a bounded durable decision through the broker", async () => {
     vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
     vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
@@ -336,6 +362,54 @@ describe("idea-capture-command", () => {
     expect(result.text).toContain(
       "Decision notes: Revisit this after the owner-assigned vocabulary lands.",
     );
+  });
+
+  it("returns a specific incomplete-command error when /idea decide is missing notes", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "decide idea-41 parked",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("Incomplete command. Add decision notes after `parked`.");
+    expect(result.text).toContain("Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>");
+  });
+
+  it("returns a specific status error when /idea decide uses an unsupported status", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await captureIdeaThroughBroker({
+      accountId: "default",
+      chatType: "private",
+      messageId: 12,
+      rawArgs: "decide idea-41 owner-assigned Broker owns the next slice",
+      senderId: "200",
+      senderUsername: "bob",
+      telegramChatId: 100,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("Unsupported decision status `owner-assigned`.");
+    expect(result.text).toContain("Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>");
   });
 
   it("reserves triage discuss as an unimplemented AI-assisted placeholder", async () => {

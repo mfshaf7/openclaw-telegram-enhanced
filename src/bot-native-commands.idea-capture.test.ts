@@ -184,6 +184,35 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
     expect(replyPayload?.replies?.[0]?.text).toContain("Triaged idea-39 [triaged]");
   });
 
+  it("returns a specific incomplete-command error when /idea triage is missing the summary", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const harness = createNativeCommandsHarness({
+      groupAllowFrom: ["12345"],
+    });
+
+    const ctx = createTelegramGroupCommandContext({
+      senderId: 12345,
+      username: "testuser",
+    });
+    ctx.match = "triage idea-39";
+
+    await harness.handlers.idea(
+      ctx,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
+    expect(replyPayload?.replies?.[0]?.text).toContain(
+      "Incomplete command. Add a triage summary after the idea id.",
+    );
+  });
+
   it("routes /idea decide through the broker", async () => {
     vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
     vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
@@ -230,5 +259,34 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
     });
     const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
     expect(replyPayload?.replies?.[0]?.text).toContain("Decided idea-39 [parked]");
+  });
+
+  it("returns a specific incomplete-command error when /idea decide is missing notes", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const harness = createNativeCommandsHarness({
+      groupAllowFrom: ["12345"],
+    });
+
+    const ctx = createTelegramGroupCommandContext({
+      senderId: 12345,
+      username: "testuser",
+    });
+    ctx.match = "decide idea-39 parked";
+
+    await harness.handlers.idea(
+      ctx,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
+    expect(replyPayload?.replies?.[0]?.text).toContain(
+      "Incomplete command. Add decision notes after `parked`.",
+    );
   });
 });
