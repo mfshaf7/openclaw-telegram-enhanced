@@ -289,4 +289,33 @@ describe("registerTelegramNativeCommands idea capture integration", () => {
       "Incomplete command. Add decision notes after `parked`.",
     );
   });
+
+  it("does not capture malformed decide commands as new ideas", async () => {
+    vi.stubEnv("OPERATOR_ORCHESTRATION_BASE_URL", "http://broker.internal");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_ID", "openclaw-stage-gateway");
+    vi.stubEnv("OPERATOR_ORCHESTRATION_CALLER_SECRET", "secret");
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const harness = createNativeCommandsHarness({
+      groupAllowFrom: ["12345"],
+    });
+
+    const ctx = createTelegramGroupCommandContext({
+      senderId: 12345,
+      username: "testuser",
+    });
+    ctx.match = "decide whether the ART handoff should become a runbook";
+
+    await harness.handlers.idea(
+      ctx,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const replyPayload = deliverReplies.mock.calls.at(-1)?.[0];
+    expect(replyPayload?.replies?.[0]?.text).toContain(
+      "Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>",
+    );
+  });
 });

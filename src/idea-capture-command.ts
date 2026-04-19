@@ -9,6 +9,19 @@ const CALLER_SECRET_ENV = "OPERATOR_ORCHESTRATION_CALLER_SECRET";
 const DEFAULT_LIST_LIMIT = 10;
 const MAX_LIST_LIMIT = 25;
 const IDEA_DECISION_STATUSES = new Set(["parked", "accepted", "rejected"]);
+const RESERVED_IDEA_SUBCOMMANDS = new Set([
+  "all",
+  "decide",
+  "decision",
+  "get",
+  "help",
+  "list",
+  "ls",
+  "show",
+  "status",
+  "triage",
+  "usage",
+]);
 
 type IdeaCommandReply = {
   text: string;
@@ -221,14 +234,14 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
 
   if (subcommand === "decide" || subcommand === "decision") {
     const ideaId = parts[1]?.trim() ?? "";
+    const usageText = "Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>";
     if (!/^idea-\d+$/i.test(ideaId)) {
       return {
-        kind: "capture",
-        rawText,
+        isError: true,
+        text: usageText,
       };
     }
 
-    const usageText = "Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>";
     const decisionStatus = parts[2]?.trim().toLowerCase() ?? "";
     const notes = parts.slice(3).join(" ").trim();
     if (!decisionStatus) {
@@ -351,6 +364,28 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
       kind: "show",
       ideaId: ideaId.toLowerCase(),
     };
+  }
+
+  if (RESERVED_IDEA_SUBCOMMANDS.has(subcommand)) {
+    if (subcommand === "status") {
+      return {
+        isError: true,
+        text: "Usage: /idea list status <status> [limit] [offset]",
+      };
+    }
+
+    if (subcommand === "help" || subcommand === "usage") {
+      return {
+        kind: "help",
+      };
+    }
+
+    if (subcommand === "all") {
+      return {
+        isError: true,
+        text: "Usage: /idea list all",
+      };
+    }
   }
 
   return {
