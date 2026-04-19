@@ -58,5 +58,6 @@ regress the Telegram control boundary:
 - `npm run test:standalone`
 - `npm run test:bundle` when bundled/integration seams changed
 - `npm pack` when packaging metadata matters
+- `npm run validate:repo-docs`
 - `npm run validate:governance-docs` when change-record evidence changes
 - `npm run validate:change-record-requirement` for PR-shaped Telegram source changes that should emit a security-tagged change record

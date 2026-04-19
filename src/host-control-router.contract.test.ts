@@ -19,14 +19,18 @@ vi.mock("./bot/delivery.js", () => ({
 }));
 
 const {
+  buildHostControlRecoveryRequestBody,
+  formatRecoveryDiagnosticsText,
   HOST_CONTROL_DIRECT_READ_CALLBACK_PREFIXES,
   HOST_CONTROL_ROUTER_CONTRACT,
+  deriveRecoveryTargetProfile,
   extractGeneralQuery,
   handleForcedHostControlReadCallback,
   looksLikeHostScopedFindText,
   looksLikeNonHostControlEscape,
   matchHostControlProposalCallbackData,
   parseDirectReadIntent,
+  resolveHostControlTelegramConfig,
 } = await import("./bot-message-dispatch.host-control");
 
 const manifest = JSON.parse(
@@ -225,5 +229,80 @@ describe("host-control router contract", () => {
     expect(
       Object.values(stored).find((entry: any) => entry?.proposalId === proposalId),
     ).toBeUndefined();
+  });
+
+  it("derives explicit stage recovery targeting from the bridge config", () => {
+    process.env.OPENCLAW_HOST_BRIDGE_TOKEN = "token";
+    expect(deriveRecoveryTargetProfile("http://bridge.local:48731")).toBe("stage");
+    expect(deriveRecoveryTargetProfile("http://bridge.local:48721")).toBe("prod");
+
+    const stageConfig = resolveHostControlTelegramConfig({
+      plugins: {
+        entries: {
+          "host-control": {
+            config: {
+              bridgeUrl: "http://bridge.local:48731",
+            },
+          },
+        },
+      },
+    });
+
+    expect(stageConfig?.recoveryTargetProfile).toBe("stage");
+    expect(stageConfig?.recoveryUrl).toBe("http://bridge.local:48722");
+  });
+
+  it("includes an explicit recovery target profile and bridge url in self-heal requests", () => {
+    const requestBody = buildHostControlRecoveryRequestBody(
+      {
+        bridgeUrl: "http://bridge.local:48731",
+        authTokenEnv: "OPENCLAW_HOST_BRIDGE_TOKEN",
+        authToken: "token",
+        recoveryUrl: "http://bridge.local:48722",
+        recoveryTargetProfile: "stage",
+        recoveryAuthTokenEnv: "OPENCLAW_HOST_BRIDGE_TOKEN",
+        recoveryAuthToken: "token",
+        timeoutMs: 10_000,
+        recoveryTimeoutMs: 20_000,
+        operationTimeoutsMs: {},
+        allowWriteOperations: false,
+        allowAdminOperations: false,
+        allowExportOperations: true,
+      },
+      { action: "diagnostics" },
+    );
+
+    expect(requestBody).toEqual({
+      action: "diagnostics",
+      targetProfile: "stage",
+      bridgeUrl: "http://bridge.local:48731",
+    });
+  });
+
+  it("renders the target profile in recovery diagnostics text", () => {
+    const text = formatRecoveryDiagnosticsText(
+      {
+        targetProfile: "stage",
+        summary: { healthy: false, issues: [{ message: "Bridge supervisor is not running." }] },
+        diagnostics: {
+          targetProfile: "stage",
+          bridge: { ok: false, error: "fetch failed" },
+          recovery: { ok: true, host: "127.0.0.1", port: 48722 },
+          sessions: {
+            bridge: { running: false },
+            recovery: { running: true },
+          },
+          pids: {
+            bridge: { running: false },
+            recovery: { running: true, pid: 1234 },
+          },
+          auth: { tokenLoaded: true, tokenSource: "env.OPENCLAW_HOST_BRIDGE_TOKEN" },
+        },
+      },
+      "Host-control status:",
+    );
+
+    expect(text).toContain("Target profile: `stage`");
+    expect(text).toContain("Bridge supervisor is not running.");
   });
 });
