@@ -8,6 +8,7 @@ const CALLER_ID_ENV = "OPERATOR_ORCHESTRATION_CALLER_ID";
 const CALLER_SECRET_ENV = "OPERATOR_ORCHESTRATION_CALLER_SECRET";
 const DEFAULT_LIST_LIMIT = 10;
 const MAX_LIST_LIMIT = 25;
+const IDEA_DECISION_STATUSES = new Set(["parked", "accepted", "rejected"]);
 
 type IdeaCommandReply = {
   text: string;
@@ -44,7 +45,16 @@ type IdeaWorkflowDescriptor = {
 type IdeaRecordProjection = {
   body?: string | null;
   created_at?: string | null;
+  evaluation?: {
+    affected_scope?: string[] | null;
+    ai_assist_lane?: string | null;
+    confidence?: string | null;
+    notes?: string | null;
+    suspected_owner?: string | null;
+    trust_boundary_areas?: string[] | null;
+  };
   idea_id?: string;
+  operator_decision_notes?: string | null;
   record_ref?: string;
   source?: {
     surface?: string;
@@ -52,6 +62,7 @@ type IdeaRecordProjection = {
   };
   status?: string;
   title?: string;
+  triage_summary?: string | null;
   updated_at?: string | null;
 };
 
@@ -88,6 +99,8 @@ type IdeaCommandParams = {
 type IdeaCommandAction =
   | { kind: "help" }
   | { kind: "capture"; rawText: string }
+  | { kind: "triage"; ideaId: string; summary: string }
+  | { kind: "decision"; ideaId: string; decisionStatus: "parked" | "accepted" | "rejected"; notes: string }
   | { kind: "list"; limit: number; offset: number; statusFilter?: string }
   | { kind: "listAll"; statusFilter?: string }
   | { kind: "show"; ideaId: string };
@@ -164,6 +177,65 @@ function parseIdeaCommand(rawArgs: string | undefined): IdeaCommandAction | Idea
 
     return {
       kind: "listAll",
+    };
+  }
+
+  if (subcommand === "triage") {
+    if (parts[1]?.toLowerCase() === "discuss") {
+      const ideaId = parts[2]?.trim() ?? "";
+      if (!/^idea-\d+$/i.test(ideaId) || parts.length !== 3) {
+        return {
+          isError: true,
+          text: "Usage: /idea triage discuss <idea-id>",
+        };
+      }
+
+      return {
+        isError: true,
+        text:
+          "AI-assisted triage discussion is reserved for future use and is not implemented yet. For now use /idea triage <idea-id> <summary>.",
+      };
+    }
+
+    const ideaId = parts[1]?.trim() ?? "";
+    const summary = parts.slice(2).join(" ").trim();
+    if (!/^idea-\d+$/i.test(ideaId) || !summary) {
+      return {
+        isError: true,
+        text: "Usage: /idea triage <idea-id> <summary>",
+      };
+    }
+
+    return {
+      kind: "triage",
+      ideaId: ideaId.toLowerCase(),
+      summary,
+    };
+  }
+
+  if (subcommand === "decide" || subcommand === "decision") {
+    const ideaId = parts[1]?.trim() ?? "";
+    if (!/^idea-\d+$/i.test(ideaId)) {
+      return {
+        kind: "capture",
+        rawText,
+      };
+    }
+
+    const decisionStatus = parts[2]?.trim().toLowerCase() ?? "";
+    const notes = parts.slice(3).join(" ").trim();
+    if (!IDEA_DECISION_STATUSES.has(decisionStatus) || !notes) {
+      return {
+        isError: true,
+        text: "Usage: /idea decide <idea-id> <parked|accepted|rejected> <notes>",
+      };
+    }
+
+    return {
+      kind: "decision",
+      ideaId: ideaId.toLowerCase(),
+      decisionStatus: decisionStatus as "parked" | "accepted" | "rejected",
+      notes,
     };
   }
 
@@ -516,11 +588,24 @@ function formatIdeaRecord(record: IdeaRecordProjection): string {
   const recordRef = record.record_ref?.trim() || "record-ref-unavailable";
   const title = record.title?.trim() || "Untitled idea";
   const body = record.body?.trim() || "_No body stored._";
+  const triageSummary = record.triage_summary?.trim();
+  const operatorDecisionNotes = record.operator_decision_notes?.trim();
+  const evaluation = record.evaluation;
+  const suspectedOwner = evaluation?.suspected_owner?.trim();
+  const affectedScope = Array.isArray(evaluation?.affected_scope)
+    ? evaluation.affected_scope.map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  const trustBoundaryAreas = Array.isArray(evaluation?.trust_boundary_areas)
+    ? evaluation.trust_boundary_areas.map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  const evaluationConfidence = evaluation?.confidence?.trim();
+  const evaluationAiAssistLane = evaluation?.ai_assist_lane?.trim();
+  const evaluationNotes = evaluation?.notes?.trim();
   const updatedAt = compactTimestamp(record.updated_at?.trim() || record.created_at?.trim() || "unknown");
   const sourceSurface = record.source?.surface?.trim() || "unknown";
   const integrationId = record.source?.integration_id?.trim() || "default";
 
-  return [
+  const lines = [
     "Idea record:",
     renderCodeTable(
       ["Field", "Value"],
@@ -538,9 +623,49 @@ function formatIdeaRecord(record: IdeaRecordProjection): string {
     "",
     "Body:",
     body,
-    "",
-    `Review the backlog: /idea list`,
-  ].join("\n");
+  ];
+
+  if (triageSummary) {
+    lines.push("", "Triage summary:", triageSummary);
+  }
+
+  if (operatorDecisionNotes) {
+    lines.push("", "Operator decision notes:", operatorDecisionNotes);
+  }
+
+  if (
+    suspectedOwner ||
+    affectedScope.length > 0 ||
+    trustBoundaryAreas.length > 0 ||
+    evaluationConfidence ||
+    evaluationAiAssistLane ||
+    evaluationNotes
+  ) {
+    lines.push("", "Evaluation metadata:");
+    if (suspectedOwner) {
+      lines.push(`- Suspected owner: ${suspectedOwner}`);
+    }
+    if (affectedScope.length > 0) {
+      lines.push(`- Affected scope: ${affectedScope.join(", ")}`);
+    }
+    if (trustBoundaryAreas.length > 0) {
+      lines.push(`- Trust boundary areas: ${trustBoundaryAreas.join(", ")}`);
+    }
+    if (evaluationConfidence) {
+      lines.push(`- Confidence: ${evaluationConfidence}`);
+    }
+    if (evaluationAiAssistLane) {
+      lines.push(`- AI assist lane: ${evaluationAiAssistLane}`);
+    }
+    if (evaluationNotes) {
+      lines.push("- Notes:");
+      lines.push(evaluationNotes);
+    }
+  }
+
+  lines.push("", `Review the backlog: /idea list`);
+
+  return lines.join("\n");
 }
 
 function formatIdeaList(
@@ -774,6 +899,93 @@ async function captureIdeaRequest(
   };
 }
 
+async function triageIdeaThroughBroker(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+  params: IdeaCommandParams,
+  action: Extract<IdeaCommandAction, { kind: "triage" }>,
+): Promise<IdeaCommandReply> {
+  const payload = await performBrokerRequest(config, {
+    body: JSON.stringify({
+      input: {
+        summary: action.summary,
+      },
+      operator: {
+        id: params.senderId,
+        handle: params.senderUsername,
+      },
+    }),
+    errorPrefix: "Idea triage failed",
+    fallbackMessage: "Broker rejected the idea triage request.",
+    method: "POST",
+    path: `/v1/ideas/${action.ideaId}/triage`,
+  });
+
+  if ("text" in payload) {
+    return payload;
+  }
+
+  const ideaId = typeof payload.idea_id === "string" ? payload.idea_id : action.ideaId;
+  const recordRef =
+    typeof payload.record_ref === "string" ? payload.record_ref : "record-ref-unavailable";
+  const status = typeof payload.status === "string" ? payload.status : "triaged";
+  const triageSummary =
+    typeof payload.triage_summary === "string" && payload.triage_summary.trim()
+      ? payload.triage_summary.trim()
+      : action.summary;
+
+  return {
+    text:
+      `Triaged ${ideaId} [${status}]\n` +
+      `Record: ${recordRef}\n` +
+      `Summary: ${triageSummary}\n` +
+      `Review: /idea show ${ideaId}`,
+  };
+}
+
+async function decideIdeaThroughBroker(
+  config: NonNullable<ReturnType<typeof loadIdeaCaptureConfig>>,
+  params: IdeaCommandParams,
+  action: Extract<IdeaCommandAction, { kind: "decision" }>,
+): Promise<IdeaCommandReply> {
+  const payload = await performBrokerRequest(config, {
+    body: JSON.stringify({
+      input: {
+        notes: action.notes,
+        status: action.decisionStatus,
+      },
+      operator: {
+        id: params.senderId,
+        handle: params.senderUsername,
+      },
+    }),
+    errorPrefix: "Idea decision failed",
+    fallbackMessage: "Broker rejected the idea decision request.",
+    method: "POST",
+    path: `/v1/ideas/${action.ideaId}/decision`,
+  });
+
+  if ("text" in payload) {
+    return payload;
+  }
+
+  const ideaId = typeof payload.idea_id === "string" ? payload.idea_id : action.ideaId;
+  const recordRef =
+    typeof payload.record_ref === "string" ? payload.record_ref : "record-ref-unavailable";
+  const status = typeof payload.status === "string" ? payload.status : action.decisionStatus;
+  const operatorDecisionNotes =
+    typeof payload.operator_decision_notes === "string" && payload.operator_decision_notes.trim()
+      ? payload.operator_decision_notes.trim()
+      : action.notes;
+
+  return {
+    text:
+      `Decided ${ideaId} [${status}]\n` +
+      `Record: ${recordRef}\n` +
+      `Decision notes: ${operatorDecisionNotes}\n` +
+      `Review: /idea show ${ideaId}`,
+  };
+}
+
 export async function captureIdeaThroughBroker(
   params: IdeaCommandParams,
 ): Promise<IdeaCommandReply> {
@@ -813,6 +1025,14 @@ export async function captureIdeaThroughBroker(
 
   if (action.kind === "show") {
     return await showIdeaThroughBroker(config, action);
+  }
+
+  if (action.kind === "triage") {
+    return await triageIdeaThroughBroker(config, params, action);
+  }
+
+  if (action.kind === "decision") {
+    return await decideIdeaThroughBroker(config, params, action);
   }
 
   return await captureIdeaRequest(config, params, action.rawText);

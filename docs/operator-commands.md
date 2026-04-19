@@ -71,6 +71,16 @@ Supported commands:
 
 - `/idea <text>`
   - create a new idea record through the broker
+- `/idea triage <idea-id> <summary>`
+  - record operator-authored framing for an existing captured idea
+  - move it into `triaged` without requiring desktop Codex access
+- `/idea decide <idea-id> <parked|accepted|rejected> <notes>`
+  - record the first bounded durable outcome for a triaged idea
+  - stores operator decision notes on the canonical record
+  - does not expose `owner-assigned` yet
+- `/idea triage discuss <idea-id>`
+  - reserved placeholder for a future AI-assisted discussion path
+  - currently returns a not-implemented message and does not call the broker
 - `/idea help`
   - show the broker-owned workflow guidance and lifecycle statuses
 - `/idea list`
@@ -86,6 +96,12 @@ Supported commands:
 - `/idea show <idea-id>`
   - show one stored idea record by canonical broker idea id such as
     `idea-41`
+  - includes the stored triage summary when the record has already been
+    triaged
+  - includes stored operator decision notes when the record has already been
+    decided
+  - includes internal evaluation metadata when the broker has already
+    populated it
 
 Runtime dependencies:
 
@@ -102,6 +118,7 @@ The Telegram plugin must stay a thin adapter here:
 - no OpenProject credentials
 - no backlog workflow logic
 - no Telegram-local fallback truth for broker-owned help semantics
+- no Telegram-local AI triage logic
 
 ## Troubleshooting Boundary
 
