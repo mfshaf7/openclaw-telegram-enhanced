@@ -71,6 +71,9 @@ Supported commands:
 
 - `/idea <text>`
   - create a new idea record through the broker
+  - reserved command keywords are not captured as free-form idea text; malformed
+    command attempts such as `/idea decide ...` or `/idea status ...` must fail
+    visibly instead of silently creating a new record
 - `/idea triage <idea-id> <summary>`
   - record operator-authored framing for an existing captured idea
   - move it into `triaged` without requiring desktop Codex access
