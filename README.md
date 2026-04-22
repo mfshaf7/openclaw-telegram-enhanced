@@ -24,7 +24,7 @@ It does not own:
 - Windows or WSL bridge behavior
 - environment promotion or deployment approval
 
-## Architecture Role
+## Architecture At A Glance
 
 ```mermaid
 flowchart LR
