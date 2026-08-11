@@ -42,8 +42,8 @@ It does not own host policy, bridge enforcement, or environment promotion.
 
 ## Review guidelines
 
-For Codex GitHub review, treat the following as `P1` when they plausibly
-regress the Telegram control boundary:
+For owner review or optional advisory review, treat the following as `P1` when
+they plausibly regress the Telegram control boundary:
 
 - backend truth, approval logic, or canonical workflow policy leaking into the
   Telegram layer instead of staying a thin adapter
